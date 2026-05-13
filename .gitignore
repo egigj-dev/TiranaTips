@@ -1,0 +1,41 @@
+# ── Kredencialet dhe sekrete ──
+# KRITIKE: Ky skedar përmban çelësa API dhe token-ë të gjallë.
+# Nëse commit-ohet, çelësat duhet të rindërtohen (rotate) menjëherë.
+.env
+_env
+*.env
+.env.*
+
+# ── Qdrant dhe ChromaDB (të dhëna lokale, jo kod) ──
+qdrant_storage/
+chroma_db/
+
+# ── Databaza SQLite ──
+*.db
+*.sqlite
+
+# ── Python cache ──
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+
+# ── HuggingFace dhe fastembed model cache ──
+# Këto shkarkohen automatikisht — nuk duhen në repo
+.cache/
+models/
+
+# ── IDE ──
+.vscode/
+.idea/
+
+# ── OS ──
+.DS_Store
+Thumbs.db
+
+# ── Extra Files ──
+index.html
+main_v1.py
+database_v1.py

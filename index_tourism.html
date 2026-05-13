@@ -1,0 +1,1517 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TiranaTips — Your City Guide</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --sand:      #f5ede0;
+    --cream:     #fdf8f2;
+    --terra:     #c96b3f;
+    --terra-dim: #a04f28;
+    --terra-pale:#f0d5c5;
+    --ink:       #1e1810;
+    --brown:     #5c3d1e;
+    --muted:     #9b856b;
+    --leaf:      #4a7c59;
+    --sky:       #4a7fa5;
+    --border:    #e2d4c2;
+    --white:     #ffffff;
+    --panel-w:   320px;
+    --radius:    16px;
+    --font-serif: 'Playfair Display', Georgia, serif;
+    --font-body:  'Outfit', sans-serif;
+
+    /* Texture overlay */
+    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+  }
+
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--sand);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 14px;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background-image: var(--grain);
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 24px;
+    background: var(--terra);
+    flex-shrink: 0;
+    position: relative;
+    overflow: hidden;
+    box-shadow: 0 2px 16px rgba(201,107,63,.3);
+  }
+
+  header::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Ccircle cx='30' cy='30' r='28' fill='none' stroke='rgba(255,255,255,0.06)' stroke-width='1'/%3E%3Ccircle cx='30' cy='30' r='18' fill='none' stroke='rgba(255,255,255,0.04)' stroke-width='1'/%3E%3C/svg%3E") repeat;
+    pointer-events: none;
+  }
+
+  .logo-wrap {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-decoration: none;
+  }
+
+  .logo-icon {
+    width: 38px;
+    height: 38px;
+    background: rgba(255,255,255,0.15);
+    border: 1.5px solid rgba(255,255,255,0.3);
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    font-size: 20px;
+    backdrop-filter: blur(4px);
+    flex-shrink: 0;
+  }
+
+  .logo-text {
+    font-family: var(--font-serif);
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    letter-spacing: -0.5px;
+  }
+
+  .logo-sub {
+    font-size: 10px;
+    color: rgba(255,255,255,0.65);
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    display: block;
+    font-family: var(--font-body);
+    font-weight: 300;
+    line-height: 1;
+    margin-top: 1px;
+  }
+
+  .header-right {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .city-badge {
+    background: rgba(255,255,255,0.15);
+    border: 1px solid rgba(255,255,255,0.25);
+    border-radius: 20px;
+    padding: 5px 13px;
+    font-size: 12px;
+    color: #fff;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    backdrop-filter: blur(4px);
+    font-weight: 400;
+  }
+
+  .city-badge-dot {
+    width: 6px;
+    height: 6px;
+    background: #7ddd9e;
+    border-radius: 50%;
+    animation: pulse 2.5s ease-in-out infinite;
+  }
+
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
+
+  .model-selector {
+    display: flex;
+    gap: 4px;
+  }
+
+  .model-pill {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: rgba(255,255,255,0.7);
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 4px 11px;
+    border-radius: 20px;
+    cursor: pointer;
+    transition: all .2s;
+    letter-spacing: .3px;
+  }
+
+  .model-pill.active {
+    background: rgba(255,255,255,0.25);
+    border-color: rgba(255,255,255,0.5);
+    color: #fff;
+    font-weight: 500;
+  }
+
+  .hist-toggle {
+    background: rgba(255,255,255,0.1);
+    border: 1px solid rgba(255,255,255,0.25);
+    color: rgba(255,255,255,0.8);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 5px 13px;
+    border-radius: 8px;
+    transition: all .2s;
+    letter-spacing: .5px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .hist-toggle:hover, .hist-toggle.active {
+    background: rgba(255,255,255,0.2);
+    color: #fff;
+  }
+
+  .hist-toggle .badge {
+    background: #fff;
+    color: var(--terra);
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 5px;
+    border-radius: 10px;
+    display: none;
+  }
+
+  .hist-toggle .badge.show { display: inline; }
+
+  /* ── Session bar ── */
+  .session-bar {
+    padding: 8px 24px;
+    border-bottom: 1px solid var(--border);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 11px;
+    color: var(--muted);
+    background: var(--cream);
+    flex-shrink: 0;
+    letter-spacing: .5px;
+  }
+
+  .session-bar label {
+    text-transform: uppercase;
+    font-weight: 500;
+    font-size: 10px;
+    letter-spacing: 1.2px;
+    color: var(--muted);
+  }
+
+  #session-id {
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 12px;
+    padding: 4px 10px;
+    border-radius: 8px;
+    width: 180px;
+    outline: none;
+    transition: border-color .2s;
+  }
+
+  #session-id:focus { border-color: var(--terra); }
+
+  .new-session-btn {
+    background: none;
+    border: 1.5px solid var(--border);
+    color: var(--muted);
+    cursor: pointer;
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 4px 12px;
+    border-radius: 8px;
+    transition: all .2s;
+  }
+
+  .new-session-btn:hover {
+    border-color: var(--terra);
+    color: var(--terra);
+  }
+
+  /* ── Layout ── */
+  .main-layout {
+    flex: 1;
+    min-height: 0;
+    display: flex;
+    overflow: hidden;
+  }
+
+  .chat-column {
+    flex: 1;
+    min-height: 0;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    background: var(--sand);
+    background-image: var(--grain);
+  }
+
+  #chat-window {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+    padding: 28px 24px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    scroll-behavior: smooth;
+  }
+
+  #chat-window::-webkit-scrollbar { width: 4px; }
+  #chat-window::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  /* ── Welcome screen ── */
+  .welcome {
+    margin: auto;
+    text-align: center;
+    padding: 32px 24px;
+    max-width: 480px;
+    animation: fadeUp .6s ease both;
+  }
+
+  .welcome-map {
+    width: 80px;
+    height: 80px;
+    background: linear-gradient(135deg, var(--terra), #e0895a);
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 36px;
+    margin: 0 auto 20px;
+    box-shadow: 0 8px 32px rgba(201,107,63,.35);
+    animation: float 4s ease-in-out infinite;
+  }
+
+  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
+
+  .welcome h2 {
+    font-family: var(--font-serif);
+    font-weight: 700;
+    font-size: 28px;
+    color: var(--ink);
+    margin-bottom: 10px;
+    line-height: 1.2;
+  }
+
+  .welcome h2 em {
+    font-style: italic;
+    color: var(--terra);
+  }
+
+  .welcome p {
+    color: var(--muted);
+    font-size: 14px;
+    line-height: 1.75;
+    margin-bottom: 24px;
+    font-weight: 300;
+  }
+
+  .suggestions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+  }
+
+  .suggestion {
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    color: var(--brown);
+    padding: 8px 15px;
+    border-radius: 24px;
+    font-size: 12.5px;
+    cursor: pointer;
+    transition: all .2s;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-family: var(--font-body);
+    font-weight: 400;
+  }
+
+  .suggestion:hover {
+    border-color: var(--terra);
+    color: var(--terra);
+    background: var(--terra-pale);
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(201,107,63,.15);
+  }
+
+  /* ── Messages ── */
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(10px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .message {
+    display: flex;
+    gap: 12px;
+    max-width: 680px;
+    animation: fadeUp .3s ease both;
+  }
+
+  .message.user { margin-left: auto; flex-direction: row-reverse; }
+
+  .avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    display: grid;
+    place-items: center;
+    font-size: 15px;
+    flex-shrink: 0;
+  }
+
+  .message.user .avatar {
+    background: var(--terra);
+    color: #fff;
+    font-size: 13px;
+    font-family: var(--font-body);
+    font-weight: 500;
+  }
+
+  .message.ai .avatar {
+    background: linear-gradient(135deg, #c96b3f, #e0895a);
+    color: #fff;
+    font-size: 16px;
+    box-shadow: 0 2px 8px rgba(201,107,63,.35);
+  }
+
+  .bubble {
+    padding: 13px 17px;
+    border-radius: var(--radius);
+    line-height: 1.75;
+    max-width: calc(100% - 46px);
+    font-size: 14px;
+  }
+
+  .message.user .bubble {
+    background: var(--terra);
+    color: #fff;
+    border-top-right-radius: 4px;
+    box-shadow: 0 2px 12px rgba(201,107,63,.25);
+  }
+
+  .message.ai .bubble {
+    background: var(--white);
+    color: var(--ink);
+    border: 1.5px solid var(--border);
+    border-top-left-radius: 4px;
+    box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  }
+
+  .error-bubble {
+    background: #fff5f5 !important;
+    border-color: #f5c5c5 !important;
+    color: #c03030 !important;
+  }
+
+  /* ── Bubble meta ── */
+  .bubble-meta {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+  }
+
+  .model-tag {
+    font-size: 9px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: var(--sand);
+    font-family: var(--font-body);
+  }
+
+  .cache-tag {
+    font-size: 9px;
+    letter-spacing: 1px;
+    color: var(--leaf);
+    border: 1px solid #c5dfc9;
+    padding: 2px 7px;
+    border-radius: 4px;
+    background: #eef7f0;
+  }
+
+  /* ── Sources ── */
+  .sources {
+    margin-top: 10px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 5px;
+  }
+
+  .source-tag {
+    background: var(--sand);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    font-size: 10px;
+    padding: 3px 9px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-family: var(--font-body);
+  }
+
+  .source-tag::before {
+    content: '📍';
+    font-size: 9px;
+  }
+
+  /* ── Typing ── */
+  .typing-indicator {
+    display: flex;
+    gap: 5px;
+    align-items: center;
+    padding: 4px 2px;
+  }
+
+  .typing-indicator span {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: var(--terra-pale);
+    border: 1.5px solid var(--terra);
+    animation: bounce 1.2s ease infinite;
+  }
+
+  .typing-indicator span:nth-child(2) { animation-delay: .15s; }
+  .typing-indicator span:nth-child(3) { animation-delay: .3s; }
+
+  @keyframes bounce {
+    0%,60%,100% { transform: translateY(0); }
+    30%          { transform: translateY(-7px); }
+  }
+
+  /* ── Input area ── */
+  .input-area {
+    padding: 14px 24px 20px;
+    border-top: 1.5px solid var(--border);
+    background: var(--cream);
+    flex-shrink: 0;
+  }
+
+  .input-wrapper {
+    display: flex;
+    align-items: flex-end;
+    gap: 10px;
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: 14px;
+    padding: 10px 12px;
+    transition: border-color .2s, box-shadow .2s;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  }
+
+  .input-wrapper:focus-within {
+    border-color: var(--terra);
+    box-shadow: 0 0 0 3px rgba(201,107,63,.12), 0 2px 8px rgba(0,0,0,.05);
+  }
+
+  .input-icon {
+    font-size: 18px;
+    flex-shrink: 0;
+    padding-bottom: 2px;
+    opacity: 0.5;
+  }
+
+  #user-input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    color: var(--ink);
+    font-family: var(--font-body);
+    font-size: 14px;
+    resize: none;
+    max-height: 120px;
+    min-height: 22px;
+    line-height: 1.6;
+  }
+
+  #user-input::placeholder { color: var(--muted); font-weight: 300; }
+
+  #send-btn {
+    background: var(--terra);
+    border: none;
+    cursor: pointer;
+    color: #fff;
+    width: 36px;
+    height: 36px;
+    border-radius: 10px;
+    display: grid;
+    place-items: center;
+    flex-shrink: 0;
+    transition: all .2s;
+    font-size: 16px;
+    box-shadow: 0 2px 8px rgba(201,107,63,.35);
+  }
+
+  #send-btn:hover:not(:disabled) {
+    background: var(--terra-dim);
+    transform: scale(1.05);
+    box-shadow: 0 4px 14px rgba(201,107,63,.4);
+  }
+
+  #send-btn:disabled {
+    background: var(--border);
+    cursor: not-allowed;
+    box-shadow: none;
+  }
+
+  .hint {
+    margin-top: 8px;
+    font-size: 10px;
+    color: var(--muted);
+    text-align: center;
+    letter-spacing: .5px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 12px;
+    font-weight: 300;
+  }
+
+  .hint-item { display: flex; align-items: center; gap: 4px; }
+  .hint-key {
+    background: var(--white);
+    border: 1px solid var(--border);
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 9px;
+    font-weight: 500;
+    color: var(--brown);
+  }
+
+  /* ── History panel ── */
+  #history-panel {
+    width: var(--panel-w);
+    border-left: 1.5px solid var(--border);
+    background: var(--cream);
+    display: flex;
+    flex-direction: column;
+    transform: translateX(var(--panel-w));
+    transition: transform .3s ease;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+
+  #history-panel.open { transform: translateX(0); }
+
+  .panel-header {
+    padding: 16px 18px 14px;
+    border-bottom: 1.5px solid var(--border);
+    display: flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+
+  .panel-header h3 {
+    font-family: var(--font-serif);
+    font-weight: 700;
+    font-size: 16px;
+    color: var(--ink);
+  }
+
+  .panel-tabs {
+    display: flex;
+    gap: 4px;
+    padding: 10px 12px;
+    border-bottom: 1.5px solid var(--border);
+    flex-shrink: 0;
+  }
+
+  .tab-btn {
+    flex: 1;
+    background: none;
+    border: 1.5px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 5px 0;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all .2s;
+    letter-spacing: .5px;
+    font-weight: 400;
+  }
+
+  .tab-btn.active {
+    border-color: var(--terra);
+    color: var(--terra);
+    background: var(--terra-pale);
+    font-weight: 500;
+  }
+
+  .panel-content {
+    flex: 1;
+    overflow-y: auto;
+    padding: 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .panel-content::-webkit-scrollbar { width: 3px; }
+  .panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
+
+  .panel-empty {
+    color: var(--muted);
+    font-size: 13px;
+    text-align: center;
+    margin: auto;
+    line-height: 1.9;
+    font-weight: 300;
+  }
+
+  .msg-count {
+    font-size: 10px;
+    color: var(--muted);
+    text-align: center;
+    padding: 2px 0 6px;
+    letter-spacing: .5px;
+    font-weight: 300;
+  }
+
+  .hist-msg {
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-size: 12px;
+    line-height: 1.65;
+    border: 1.5px solid var(--border);
+  }
+
+  .hist-msg.user {
+    background: var(--terra-pale);
+    border-color: rgba(201,107,63,.3);
+  }
+
+  .hist-msg.assistant { background: var(--white); }
+
+  .hist-msg .role-label {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 5px;
+    font-weight: 500;
+  }
+
+  .hist-msg.user .role-label { color: var(--terra-dim); }
+  .hist-msg .msg-text { color: var(--ink); word-break: break-word; }
+
+  .summary-box {
+    background: linear-gradient(135deg, #eef7f0, #f5f9f6);
+    border: 1.5px solid #c5dfc9;
+    border-radius: 10px;
+    padding: 14px;
+    font-size: 12px;
+    line-height: 1.85;
+    color: #2c5c39;
+  }
+
+  .summary-box .sum-label {
+    font-size: 9px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    color: var(--leaf);
+    margin-bottom: 8px;
+    font-weight: 500;
+    display: block;
+  }
+
+  .summary-empty {
+    color: var(--muted);
+    font-size: 12px;
+    text-align: center;
+    padding: 20px 0;
+    line-height: 1.9;
+    font-weight: 300;
+  }
+
+  .refresh-btn {
+    width: 100%;
+    background: none;
+    border: 1.5px solid var(--border);
+    color: var(--muted);
+    font-family: var(--font-body);
+    font-size: 11px;
+    padding: 8px;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all .2s;
+    letter-spacing: .5px;
+  }
+
+  .refresh-btn:hover { border-color: var(--terra); color: var(--terra); }
+
+  /* ── Session dropdown ── */
+  #session-dropdown {
+    display: none;
+    position: absolute;
+    top: 34px;
+    left: 0;
+    z-index: 100;
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: 10px;
+    min-width: 250px;
+    max-height: 220px;
+    overflow-y: auto;
+    box-shadow: 0 8px 28px rgba(0,0,0,.12);
+  }
+
+  /* ── Session dropdown rows ── */
+  .session-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    border-bottom: 1px solid var(--border);
+    gap: 6px;
+    transition: background .15s;
+  }
+  .session-row:hover { background: var(--sand); }
+  .session-row:last-child { border-bottom: none; }
+
+  .session-name {
+    flex: 1;
+    font-size: 12px;
+    cursor: pointer;
+    color: var(--ink);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    max-width: 140px;
+  }
+
+  .session-actions {
+    display: flex;
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .sess-action-btn {
+    background: none;
+    border: none;
+    color: var(--muted);
+    cursor: pointer;
+    font-size: 12px;
+    padding: 2px 5px;
+    border-radius: 4px;
+    transition: all .15s;
+    line-height: 1;
+  }
+
+  .sess-action-btn:hover { background: var(--terra-pale); color: var(--terra); }
+
+  .rename-input {
+    flex: 1;
+    background: var(--white);
+    border: 1.5px solid var(--terra);
+    border-radius: 6px;
+    padding: 3px 7px;
+    font-family: var(--font-body);
+    font-size: 12px;
+    color: var(--ink);
+    outline: none;
+    min-width: 0;
+  }
+
+  /* ── Feedback ── */
+  .feedback-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 11px;
+    padding-top: 10px;
+    border-top: 1px solid var(--border);
+  }
+
+  .feedback-label {
+    font-size: 10px;
+    color: var(--muted);
+    letter-spacing: .5px;
+    text-transform: uppercase;
+    font-weight: 400;
+  }
+
+  .fb-btn {
+    background: none;
+    border: 1.5px solid var(--border);
+    color: var(--muted);
+    font-size: 14px;
+    cursor: pointer;
+    width: 30px;
+    height: 30px;
+    border-radius: 8px;
+    display: grid;
+    place-items: center;
+    transition: all .15s;
+  }
+
+  .fb-btn:hover:not(:disabled) {
+    border-color: var(--terra);
+    background: var(--terra-pale);
+  }
+
+  .fb-btn.selected-up   { border-color: var(--leaf); background: #eef7f0; }
+  .fb-btn.selected-down { border-color: #c96b6b; background: #fff0f0; }
+  .fb-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .fb-thanks {
+    font-size: 11px;
+    color: var(--leaf);
+    margin-left: 4px;
+    opacity: 0;
+    transition: opacity .3s;
+    font-weight: 500;
+  }
+
+  .fb-thanks.show { opacity: 1; }
+
+  /* ── Warning / confidence ── */
+  .warning-bubble {
+    background: #fffbf0 !important;
+    border-color: #e8d5a0 !important;
+    color: #7a5c1e !important;
+  }
+
+  .warning-bubble .confidence-note {
+    display: block;
+    margin-top: 8px;
+    font-size: 10px;
+    color: #b8930c;
+    letter-spacing: .5px;
+  }
+
+  /* ── Markdown in AI bubbles ── */
+  .md-content p { margin: 0 0 10px; line-height: 1.75; }
+  .md-content p:last-child { margin-bottom: 0; }
+  .md-content ul, .md-content ol { padding-left: 20px; margin: 6px 0; }
+  .md-content li { margin: 4px 0; line-height: 1.65; }
+  .md-content strong { color: var(--terra); font-weight: 600; }
+  .md-content em { color: var(--brown); }
+  .md-content code {
+    background: var(--sand);
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+    color: var(--sky);
+    font-family: monospace;
+  }
+  .md-content pre {
+    background: var(--sand);
+    padding: 12px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 8px 0;
+    border: 1.5px solid var(--border);
+  }
+  .md-content pre code { background: none; padding: 0; }
+  .md-content table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
+  .md-content th {
+    border: 1px solid var(--border);
+    padding: 7px 11px;
+    background: var(--sand);
+    color: var(--brown);
+    text-align: left;
+    font-weight: 600;
+  }
+  .md-content td { border: 1px solid var(--border); padding: 7px 11px; }
+  .md-content tr:nth-child(even) td { background: var(--cream); }
+  .md-content blockquote {
+    border-left: 3px solid var(--terra);
+    padding: 4px 14px;
+    margin: 8px 0;
+    color: var(--muted);
+    font-style: italic;
+  }
+  .md-content h1 { font-family: var(--font-serif); font-weight: 700; font-size: 18px; margin: 10px 0 5px; color: var(--ink); }
+  .md-content h2 { font-family: var(--font-serif); font-size: 16px; margin: 10px 0 4px; color: var(--ink); }
+  .md-content h3 { font-size: 14px; font-weight: 600; margin: 8px 0 3px; color: var(--terra); }
+  .md-content hr { border: none; border-top: 1.5px solid var(--border); margin: 12px 0; }
+  .md-content a { color: var(--terra); text-decoration: underline; }
+
+  /* ── Quick stat pills below welcome ── */
+  .stat-row {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    margin-bottom: 20px;
+    flex-wrap: wrap;
+  }
+
+  .stat-pill {
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: 20px;
+    padding: 6px 14px;
+    font-size: 11.5px;
+    color: var(--brown);
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    font-weight: 400;
+    box-shadow: 0 2px 8px rgba(0,0,0,.05);
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo-wrap">
+    <div class="logo-icon">🗺️</div>
+    <div>
+      <div class="logo-text">Wandr</div>
+      <span class="logo-sub">City Travel Guide</span>
+    </div>
+  </div>
+
+  <div class="model-selector" style="margin-left: 20px;">
+    <button class="model-pill active" onclick="selectModel(this,'meta-llama/llama-4-scout','Llama 4 Scout')">
+      Llama 4 Scout
+    </button>
+    <button class="model-pill" onclick="selectModel(this,'mistralai/ministral-8b-2512','Ministral 8B')">
+      Ministral 8B
+    </button>
+  </div>
+
+  <div class="header-right">
+    <div class="city-badge">
+      <div class="city-badge-dot"></div>
+      <span id="status-text">Live Guide</span>
+    </div>
+    <button class="hist-toggle" id="hist-btn" onclick="togglePanel()">
+      📋 History <span class="badge" id="msg-badge">0</span>
+    </button>
+  </div>
+</header>
+
+<div class="session-bar">
+  <label>Session</label>
+  <div style="position:relative;display:flex;align-items:center;gap:6px">
+    <input type="text" id="session-id" placeholder="session-id" style="display:none">
+    <span id="session-label" style="
+      background:var(--white);border:1.5px solid var(--border);
+      color:var(--ink);font-family:var(--font-body);font-size:12px;
+      padding:4px 10px;border-radius:8px;min-width:140px;max-width:200px;
+      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;display:inline-block;
+      cursor:default;" title="Current session"></span>
+    <button class="new-session-btn" onclick="promptRenameActive()" title="Rename this session" style="padding:4px 8px;">✏️</button>
+    <button class="new-session-btn" onclick="loadSessions()" title="Browse sessions">▾</button>
+    <div id="session-dropdown"></div>
+  </div>
+  <button class="new-session-btn" onclick="newSession()">+ New</button>
+</div>
+
+<div class="main-layout">
+  <div class="chat-column">
+    <div id="chat-window">
+      <div class="welcome" id="welcome-screen">
+        <div class="welcome-map">🧭</div>
+
+        <div class="stat-row">
+          <div class="stat-pill">🏛️ Landmarks</div>
+          <div class="stat-pill">🍽️ Food & Drink</div>
+          <div class="stat-pill">🚶 Hidden Gems</div>
+          <div class="stat-pill">🕐 Opening Hours</div>
+        </div>
+
+        <h2>Your <em>personal</em><br>city companion</h2>
+        <p>Ask me anything about the city — from must-see spots and local eats to transport tips and off-the-beaten-path adventures.</p>
+
+        <div class="suggestions">
+          <div class="suggestion" onclick="fillAndSend(this)">🏛️ Top landmarks to visit</div>
+          <div class="suggestion" onclick="fillAndSend(this)">🍕 Best local food spots</div>
+          <div class="suggestion" onclick="fillAndSend(this)">🚌 How to get around</div>
+          <div class="suggestion" onclick="fillAndSend(this)">🌅 Where to watch the sunset</div>
+          <div class="suggestion" onclick="fillAndSend(this)">🛍️ Best markets & shopping</div>
+          <div class="suggestion" onclick="fillAndSend(this)">💡 Tips for first-time visitors</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="input-area">
+      <div class="input-wrapper">
+        <span class="input-icon">✈️</span>
+        <textarea id="user-input" rows="1" placeholder="Ask anything about the city…" maxlength="1000"></textarea>
+        <button id="send-btn" onclick="sendMessage()">➤</button>
+      </div>
+      <div class="hint">
+        <span class="hint-item"><span class="hint-key">Enter</span> to send</span>
+        <span class="hint-item"><span class="hint-key">Shift</span>+<span class="hint-key">Enter</span> for new line</span>
+      </div>
+    </div>
+  </div>
+
+  <div id="history-panel">
+    <div class="panel-header">
+      <h3>🗒️ Session Log</h3>
+    </div>
+    <div class="panel-tabs">
+      <button class="tab-btn active" id="tab-hist" onclick="switchTab('history')">History</button>
+      <button class="tab-btn"        id="tab-sum"  onclick="switchTab('summary')">Summary</button>
+    </div>
+    <div class="panel-content" id="panel-body">
+      <p class="panel-empty">Start chatting to see<br>your conversation here.</p>
+    </div>
+    <div style="padding:0 12px 14px;flex-shrink:0">
+      <button class="refresh-btn" onclick="loadPanel()">↻ Refresh</button>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
+<script>
+  const API = 'http://localhost:8000';
+  marked.use({ breaks: true });
+
+  let panelOpen  = false;
+  let activeTab  = 'history';
+  let msgCount   = 0;
+  let activeModel     = 'meta-llama/llama-4-scout';
+  let activeModelName = 'Llama 4 Scout';
+
+  function selectModel(btn, model, name) {
+    activeModel     = model;
+    activeModelName = name;
+    document.querySelectorAll('.model-pill').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+  }
+
+  function generateId() { return 'trip-' + Math.random().toString(36).slice(2, 9); }
+
+  // Initialize first session
+  (function() {
+    const id = generateId();
+    document.getElementById('session-id').value = id;
+    currentDisplayName = id;
+    updateSessionLabel();
+  })();
+
+  function getSessionId() { return document.getElementById('session-id').value.trim(); }
+
+  function promptRenameActive() {
+    const current = currentDisplayName || getSessionId();
+    const newName = window.prompt('Rename session:', current);
+    if (!newName || !newName.trim()) return;
+    commitRenameActive(newName.trim());
+  }
+
+  async function commitRenameActive(newName) {
+    try {
+      await fetch(`${API}/sessions/${getSessionId()}/rename`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: newName }),
+      });
+      currentDisplayName = newName;
+      updateSessionLabel();
+    } catch {}
+  }
+
+  function newSession() {
+    const id = generateId();
+    document.getElementById('session-id').value = id;
+    currentDisplayName = id;
+    updateSessionLabel();
+    document.getElementById('chat-window').innerHTML = `
+      <div class="welcome" id="welcome-screen">
+        <div class="welcome-map">🧭</div>
+        <h2>New <em>adventure</em> awaits</h2>
+        <p>Your previous chat was saved. Ask me anything about the city!</p>
+        <div class="suggestions">
+          <div class="suggestion" onclick="fillAndSend(this)">🏛️ Top landmarks to visit</div>
+          <div class="suggestion" onclick="fillAndSend(this)">🍕 Best local food spots</div>
+          <div class="suggestion" onclick="fillAndSend(this)">🚌 How to get around</div>
+          <div class="suggestion" onclick="fillAndSend(this)">🌅 Where to watch the sunset</div>
+        </div>
+      </div>`;
+    msgCount = 0; updateBadge();
+    if (panelOpen) loadPanel();
+  }
+
+  async function loadSessions() {
+    const dd = document.getElementById('session-dropdown');
+    if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
+    dd.innerHTML = '<div style="padding:10px 14px;color:var(--muted);font-size:11px">Loading…</div>';
+    dd.style.display = 'block';
+    try {
+      const data     = await fetch(`${API}/sessions`).then(r => r.json());
+      const sessions = data.sessions || [];
+      if (!sessions.length) {
+        dd.innerHTML = '<div style="padding:10px 14px;color:var(--muted);font-size:11px">No saved sessions.</div>';
+        return;
+      }
+      dd.innerHTML = sessions.map(s => `
+        <div class="session-row" data-id="${s.session_id}">
+          <span class="session-name" onclick="selectSession('${s.session_id}','${escapeAttr(s.display_name)}')"
+                title="${escapeAttr(s.session_id)}">
+            ${escapeHtml(s.display_name)}
+          </span>
+          <div class="session-actions">
+            <button class="sess-action-btn" onclick="startRename('${s.session_id}','${escapeAttr(s.display_name)}')" title="Rename">✏️</button>
+            <button class="sess-action-btn" onclick="deleteSession('${s.session_id}',event)" title="Delete"
+                    onmouseover="this.style.color='#c03030'" onmouseout="this.style.color='var(--muted)'">✕</button>
+          </div>
+        </div>`).join('');
+    } catch {
+      dd.innerHTML = '<div style="padding:10px 14px;color:#c03030;font-size:11px">Load error.</div>';
+    }
+  }
+
+  function startRename(sessionId, currentName) {
+    const row = document.querySelector(`.session-row[data-id="${sessionId}"]`);
+    if (!row) return;
+    row.innerHTML = `
+      <input class="rename-input" id="rename-input-${sessionId}"
+             value="${escapeAttr(currentName)}" maxlength="80"
+             onclick="event.stopPropagation()"
+             onkeydown="handleRenameKey(event,'${sessionId}')">
+      <div class="session-actions">
+        <button class="sess-action-btn" style="color:var(--leaf)"
+                onclick="commitRename('${sessionId}')">✓</button>
+        <button class="sess-action-btn"
+                onclick="loadSessions()">✕</button>
+      </div>`;
+    const inp = document.getElementById(`rename-input-${sessionId}`);
+    inp.focus();
+    inp.select();
+  }
+
+  function handleRenameKey(e, sessionId) {
+    e.stopPropagation();
+    if (e.key === 'Enter')  commitRename(sessionId);
+    if (e.key === 'Escape') loadSessions();
+  }
+
+  async function commitRename(sessionId) {
+    const inp = document.getElementById(`rename-input-${sessionId}`);
+    const newName = inp ? inp.value.trim() : '';
+    if (!newName) return;
+    try {
+      await fetch(`${API}/sessions/${sessionId}/rename`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: newName }),
+      });
+      // If this is the active session, update the input field display name
+      if (getSessionId() === sessionId) {
+        currentDisplayName = newName;
+        updateSessionLabel();
+      }
+    } catch {}
+    loadSessions(); // refresh dropdown
+  }
+
+  // Track display name for the active session
+  let currentDisplayName = '';
+
+  function updateSessionLabel() {
+    const label = document.getElementById('session-label');
+    if (label) label.textContent = currentDisplayName || getSessionId();
+  }
+
+  function selectSession(id, displayName) {
+    document.getElementById('session-id').value = id;
+    currentDisplayName = displayName || id;
+    updateSessionLabel();
+    document.getElementById('session-dropdown').style.display = 'none';
+    if (panelOpen) loadPanel();
+  }
+
+  async function deleteSession(id, e) {
+    e.stopPropagation();
+    if (!confirm(`Delete session "${id}"?`)) return;
+    await fetch(`${API}/sessions/${id}`, { method: 'DELETE' });
+    if (getSessionId() === id) newSession();
+    loadSessions();
+  }
+
+  document.addEventListener('click', e => {
+    if (!e.target.closest('.session-bar'))
+      document.getElementById('session-dropdown').style.display = 'none';
+  });
+
+  function togglePanel() {
+    panelOpen = !panelOpen;
+    document.getElementById('history-panel').classList.toggle('open', panelOpen);
+    document.getElementById('hist-btn').classList.toggle('active', panelOpen);
+    if (panelOpen) loadPanel();
+  }
+
+  function switchTab(tab) {
+    activeTab = tab;
+    document.getElementById('tab-hist').classList.toggle('active', tab === 'history');
+    document.getElementById('tab-sum').classList.toggle('active',  tab === 'summary');
+    loadPanel();
+  }
+
+  function updateBadge() {
+    const b = document.getElementById('msg-badge');
+    b.textContent = msgCount;
+    b.classList.toggle('show', msgCount > 0);
+  }
+
+  async function loadPanel() {
+    const body = document.getElementById('panel-body');
+    body.innerHTML = '<p class="panel-empty">Loading…</p>';
+    if (activeTab === 'history') {
+      try {
+        const data = await fetch(`${API}/history/${getSessionId()}`).then(r => r.json());
+        const msgs = data.messages || [];
+        if (!msgs.length) {
+          body.innerHTML = '<p class="panel-empty">No messages yet<br>for this session.</p>';
+          return;
+        }
+        body.innerHTML = `<p class="msg-count">${msgs.length} messages</p>`;
+        msgs.forEach(m => {
+          const d = document.createElement('div');
+          d.className = `hist-msg ${m.role}`;
+          d.innerHTML = `<div class="role-label">${m.role === 'user' ? '🧑 You' : '🤖 Guide'}</div>
+                         <div class="msg-text">${escapeHtml(m.content)}</div>`;
+          body.appendChild(d);
+        });
+        body.scrollTop = body.scrollHeight;
+      } catch { body.innerHTML = '<p class="panel-empty">Error loading history.</p>'; }
+    } else {
+      try {
+        const data = await fetch(`${API}/summary/${getSessionId()}`).then(r => r.json());
+        if (!data.summary) {
+          body.innerHTML = `<p class="summary-empty">No summary yet.<br><br>
+            One is created automatically<br>every <strong>10 messages</strong>.</p>`;
+          return;
+        }
+        body.innerHTML = `<div class="summary-box">
+          <span class="sum-label">✦ Conversation summary</span>
+          ${escapeHtml(data.summary)}</div>`;
+      } catch { body.innerHTML = '<p class="panel-empty">Error loading summary.</p>'; }
+    }
+  }
+
+  function appendMessage(role, content, sources = [], fromCache = false, modelName = '') {
+    document.getElementById('welcome-screen')?.remove();
+    const win = document.getElementById('chat-window');
+    const div = document.createElement('div');
+    div.className = `message ${role}`;
+
+    let metaHtml = '';
+    if (role === 'ai') {
+      const modelTag = modelName ? `<span class="model-tag">${escapeHtml(modelName)}</span>` : '';
+      const cacheTag = fromCache  ? `<span class="cache-tag">⚡ cached</span>` : '';
+      if (modelTag || cacheTag) metaHtml = `<div class="bubble-meta">${modelTag}${cacheTag}</div>`;
+    }
+
+    const srcHtml = sources.length
+      ? `<div class="sources">${sources.map(s => `<span class="source-tag">${escapeHtml(s)}</span>`).join('')}</div>`
+      : '';
+
+    div.innerHTML = `
+      <div class="avatar">${role === 'user' ? 'You' : '🧭'}</div>
+      <div class="bubble ${role === 'error' ? 'error-bubble' : ''}">
+        ${metaHtml}${escapeHtml(content).replace(/\n/g,'<br>')}${srcHtml}
+      </div>`;
+    win.appendChild(div);
+    win.scrollTop = win.scrollHeight;
+  }
+
+  function showFeedbackButtons(el, question) {
+    el.innerHTML = `
+      <div class="feedback-row">
+        <span class="feedback-label">Helpful?</span>
+        <button class="fb-btn" id="fb-up"   title="Yes, helpful!">👍</button>
+        <button class="fb-btn" id="fb-down" title="Could be better">👎</button>
+        <span class="fb-thanks" id="fb-thanks">Thanks! ✨</span>
+      </div>`;
+
+    const upBtn   = el.querySelector('#fb-up');
+    const downBtn = el.querySelector('#fb-down');
+    const thanks  = el.querySelector('#fb-thanks');
+
+    async function sendFeedback(rating) {
+      upBtn.disabled = downBtn.disabled = true;
+      if (rating ===  1) upBtn.classList.add('selected-up');
+      if (rating === -1) downBtn.classList.add('selected-down');
+      thanks.classList.add('show');
+      try {
+        await fetch(`${API}/feedback`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ session_id: getSessionId(), question, rating }),
+        });
+      } catch {}
+    }
+
+    upBtn.addEventListener('click',   () => sendFeedback(1));
+    downBtn.addEventListener('click', () => sendFeedback(-1));
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function escapeAttr(s) {
+    return String(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;');
+  }
+
+  function createStreamingBubble(modelName) {
+    document.getElementById('welcome-screen')?.remove();
+    const win = document.getElementById('chat-window');
+    const modelTag = modelName ? `<span class="model-tag">${escapeHtml(modelName)}</span>` : '';
+
+    const div = document.createElement('div');
+    div.className = 'message ai';
+    div.innerHTML = `
+      <div class="avatar">🧭</div>
+      <div class="bubble">
+        <div class="bubble-meta" id="stream-meta">${modelTag}</div>
+        <div class="md-content" id="stream-content"></div>
+        <div class="sources" id="stream-sources" style="margin-top:9px"></div>
+        <div id="stream-feedback"></div>
+      </div>`;
+    win.appendChild(div);
+    win.scrollTop = win.scrollHeight;
+
+    return {
+      contentEl:  div.querySelector('#stream-content'),
+      sourcesEl:  div.querySelector('#stream-sources'),
+      metaEl:     div.querySelector('#stream-meta'),
+      feedbackEl: div.querySelector('#stream-feedback'),
+    };
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('user-input');
+    const btn   = document.getElementById('send-btn');
+    const q     = input.value.trim();
+    if (!q) return;
+    input.value = ''; input.style.height = 'auto';
+    btn.disabled = true;
+
+    appendMessage('user', q);
+    const { contentEl, sourcesEl, metaEl, feedbackEl } = createStreamingBubble(activeModelName);
+    const win = document.getElementById('chat-window');
+
+    try {
+      const res = await fetch(`${API}/chat/stream`, {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ session_id: getSessionId(), question: q, model: activeModel })
+      });
+
+      if (!res.ok) {
+        contentEl.textContent = `Error ${res.status}`;
+        contentEl.closest('.bubble').classList.add('error-bubble');
+        setStatus(false);
+        return;
+      }
+
+      const reader  = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer     = '';
+      let streamText = '';
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const parts = buffer.split('\n\n');
+        buffer = parts.pop();
+
+        for (const part of parts) {
+          if (!part.startsWith('data: ')) continue;
+          let msg;
+          try { msg = JSON.parse(part.slice(6)); } catch { continue; }
+
+          if (msg.type === 'token') {
+            streamText += msg.token;
+            contentEl.textContent += msg.token;
+            win.scrollTop = win.scrollHeight;
+
+          } else if (msg.type === 'sources') {
+            if (msg.sources && msg.sources.length) {
+              sourcesEl.innerHTML = msg.sources
+                .map(s => `<span class="source-tag">${escapeHtml(s)}</span>`)
+                .join('');
+            }
+
+          } else if (msg.type === 'cache') {
+            metaEl.insertAdjacentHTML('beforeend', '<span class="cache-tag">⚡ cached</span>');
+
+          } else if (msg.type === 'low_confidence') {
+            contentEl.textContent = msg.message || 'I don\'t have enough information to answer that.';
+            const note = document.createElement('span');
+            note.className = 'confidence-note';
+            note.textContent = 'Confidence: ' + ((msg.confidence || 0) * 100).toFixed(1) + '%';
+            contentEl.after(note);
+            contentEl.closest('.bubble').classList.add('warning-bubble');
+
+          } else if (msg.type === 'done') {
+            if (streamText) contentEl.innerHTML = marked.parse(streamText);
+            setStatus(true);
+            msgCount += 2;
+            updateBadge();
+            if (panelOpen) loadPanel();
+            showFeedbackButtons(feedbackEl, q);
+          }
+        }
+      }
+    } catch {
+      contentEl.textContent = 'Could not connect to the server (localhost:8000).';
+      contentEl.closest('.bubble').classList.add('error-bubble');
+      setStatus(false);
+    } finally {
+      btn.disabled = false;
+      input.focus();
+    }
+  }
+
+  function fillAndSend(el) {
+    document.getElementById('user-input').value = el.textContent.replace(/^[\p{Emoji}\s]+/u, '').trim();
+    sendMessage();
+  }
+
+  const ta = document.getElementById('user-input');
+  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'; });
+  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+
+  function setStatus(on) {
+    document.getElementById('status-text').textContent = on ? 'Live Guide' : 'Offline';
+    document.querySelector('.city-badge-dot').style.background = on ? '#7ddd9e' : '#dd7d7d';
+  }
+
+  async function checkHealth() {
+    try { setStatus((await fetch(`${API}/health`, { signal: AbortSignal.timeout(3000) })).ok); }
+    catch { setStatus(false); }
+  }
+  checkHealth();
+  setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
