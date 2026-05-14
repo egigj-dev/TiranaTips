@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+httpx
+requests
+python-dotenv
+pydantic
+slowapi
+langchain-huggingface
+langchain-text-splitters
+fastembed
+sentence-transformers
+qdrant-client
+apscheduler
