@@ -1,0 +1,54 @@
+services:
+  postgres:
+    image: postgres:15
+    container_name: tirantips-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: wikijs
+      POSTGRES_PASSWORD: strongpassword
+      POSTGRES_DB: wiki
+    volumes:
+      - ./postgres_data:/var/lib/postgresql/data
+
+  wikijs:
+    image: requarks/wiki:2
+    container_name: wikijs
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      DB_TYPE: postgres
+      DB_HOST: postgres
+      DB_PORT: 5432
+      DB_USER: wikijs
+      DB_PASS: strongpassword
+      DB_NAME: wiki
+    depends_on:
+      - postgres
+
+  qdrant:
+    image: qdrant/qdrant
+    container_name: qdrant
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:6333:6333"
+    volumes:
+      - ./qdrant_storage:/qdrant/storage
+
+  api:
+    image: python:3.11-slim
+    container_name: tirantips-api
+    restart: unless-stopped
+    working_dir: /app
+    ports:
+      - "8000:8000"
+    volumes:
+      - .:/app
+    env_file:
+      - .env
+    command: >
+      sh -c "pip install -r requirements.txt &&
+             uvicorn main:app --host 0.0.0.0 --port 8000"
+    depends_on:
+      - wikijs
+      - qdrant

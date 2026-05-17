@@ -14,6 +14,9 @@ chroma_db/
 *.db
 *.sqlite
 
+# ── Dump Files ──
+*.dump
+
 # ── Python cache ──
 __pycache__/
 *.pyc
@@ -39,3 +42,6 @@ Thumbs.db
 index.html
 main_v1.py
 database_v1.py
+postgres_data/
+wiki_data/
+wikijs-backup.dump

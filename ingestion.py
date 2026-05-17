@@ -37,12 +37,12 @@ load_dotenv()
 
 WIKI_URL        = os.getenv("WIKI_URL")
 WIKI_TOKEN      = os.getenv("WIKI_TOKEN")
-QDRANT_PATH     = os.getenv("QDRANT_PATH", "./qdrant_storage")
+QDRANT_URL      = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL")
 COLLECTION_NAME = "wiki_banking"
 
-# --- HAPI 1: Lidhja me Qdrant lokal ---
-client = QdrantClient(path=QDRANT_PATH)
+# --- HAPI 1: Lidhja me Qdrant server (HTTP) ---
+client = QdrantClient(url=QDRANT_URL)
 
 
 def recreate_collection(vector_size: int):
@@ -171,7 +171,7 @@ def embed_and_store(texts: list[str], metas: list[dict]):
         client.upsert(collection_name=COLLECTION_NAME, points=points[i : i + batch_size])
         print(f"  Ngarkuar {min(i + batch_size, len(points))}/{len(points)} pika...")
 
-    print(f"✓ {len(points)} pika (dense + sparse) u ruajtën në '{QDRANT_PATH}'.")
+    print(f"✓ {len(points)} pika (dense + sparse) u ruajtën në Qdrant server.")
 
 
 # --- MAIN ---

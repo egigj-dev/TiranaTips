@@ -21,16 +21,11 @@ from fastembed import SparseTextEmbedding
 from sentence_transformers import CrossEncoder
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
-    Distance, VectorParams,
-    SparseVector, Prefetch, Fusion,
-    NamedVector, NamedSparseVector,
+    Distance, VectorParams, SparseVector,
 )
 from database import save_message, get_history, save_summary, get_summary
 from fastapi.middleware.cors import CORSMiddleware
-from database import (save_message, get_history, save_summary, get_summary,
-                       get_all_sessions, get_all_sessions_with_names,
-                       rename_session, get_session_name,
-                       save_feedback, get_feedback_stats)
+from database import save_message, get_history, save_summary, get_summary, get_all_sessions, save_feedback, get_feedback_stats
 import hashlib, time, math, uuid
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -42,7 +37,7 @@ load_dotenv()
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
-QDRANT_PATH        = os.getenv("QDRANT_PATH", "./qdrant_storage")
+QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL")
 COLLECTION_NAME  = "wiki_banking"
 RERANK_MODEL     = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
@@ -131,7 +126,7 @@ sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25")
 # Shkarkon ~120MB herën e parë — ruhet në cache. Modeli është shumëgjuhësh.
 cross_encoder = CrossEncoder(RERANK_MODEL)
 
-qdrant = QdrantClient(path=QDRANT_PATH)
+qdrant = QdrantClient(url=QDRANT_URL)
 
 # ---------------------------------------------------------------------------
 # Ingestion pipeline (async + scheduled)
@@ -321,19 +316,21 @@ def expand_abbreviations(text: str) -> str:
         expanded.append(ABBREVIATIONS.get(clean, w))
     return " ".join(expanded)
 
-def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str]]:
-    """
-    Pipeline me tre faza:
-      1. Hybrid search (dense + BM25) → FETCH_K kandidatë (i shpejtë)
-      2. Cross-encoder reranking → ri-renditje e FETCH_K kandidatëve (i saktë)
-      3. Kthen top-k pas reranking-ut
+def _rrf(results_a, results_b, k: int = 60) -> list:
+    """Reciprocal Rank Fusion — merges two ranked lists."""
+    scores: dict[str, float] = {}
+    docs:   dict[str, object] = {}
+    for rank, hit in enumerate(results_a.points):
+        scores[hit.id] = scores.get(hit.id, 0) + 1 / (k + rank + 1)
+        docs[hit.id] = hit
+    for rank, hit in enumerate(results_b.points):
+        scores[hit.id] = scores.get(hit.id, 0) + 1 / (k + rank + 1)
+        docs[hit.id] = hit
+    ranked_ids = sorted(scores, key=lambda i: scores[i], reverse=True)
+    return [docs[i] for i in ranked_ids]
 
-    Pse tre faza dhe jo dy?
-      Faza 1 hedh rrjetën gjerë (10 kandidatë, jo 3) me kosto të ulët.
-      Faza 2 e ngushton me saktësi të lartë, por vetëm mbi 10 kandidatët — jo mbi
-      të gjithë koleksionin (ky do ishte shumë i ngadaltë).
-    """
-    # ── Faza 1: Hybrid retrieval ──
+
+def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], float]:
     dense_vec  = embeddings.embed_query(question)
     sparse_emb = list(sparse_model.query_embed(question))[0]
     sparse_vec = SparseVector(
@@ -341,61 +338,39 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str]]:
         values=sparse_emb.values.tolist(),
     )
 
-    # Tani limit=FETCH_K (10) jo 3 — marrim më shumë kandidatë për reranking
-    results = qdrant.query_points(
+    # Two independent searches
+    dense_results  = qdrant.query_points(
         collection_name=COLLECTION_NAME,
-        prefetch=[
-            Prefetch(query=NamedVector(name="dense", vector=dense_vec), limit=20),
-            Prefetch(
-                query=NamedSparseVector(name="sparse", vector=sparse_vec),
-                limit=20,
-            ),
-        ],
-        query=Fusion.RRF,
-        limit=FETCH_K,   # ← 10 kandidatë, jo 3
+        query=dense_vec,
+        using="dense",
+        limit=20,
+    )
+    sparse_results = qdrant.query_points(
+        collection_name=COLLECTION_NAME,
+        query=sparse_vec,
+        using="sparse",
+        limit=20,
     )
 
-    candidates = results.points
+    candidates = _rrf(dense_results, sparse_results)[:FETCH_K]
     if not candidates:
-        return "", []
+        return "", [], 0.0
 
-    # ── Faza 2: Cross-encoder reranking ──
-    #
-    # CrossEncoder.predict() merr një listë çiftesh [query, document] dhe
-    # kthen një listë score-sh (float). Të gjitha çiftet shkohen paralel
-    # në një batch të vetëm — shumë më efiçient se thirrje individuale.
-    #
-    # Modeli lexon query dhe chunk bashkë (cross-attention) — ndryshe nga
-    # bi-encoder që i kodon veç e veç. Kjo i jep kuptimin e raportit
-    # midis pyetjes dhe fragmentit, jo vetëm ngjashmërinë semantike.
+    # Cross-encoder reranking (unchanged)
     pairs  = [[question, hit.payload["text"]] for hit in candidates]
     scores = cross_encoder.predict(pairs)
-    # scores është array numpy, p.sh. [0.92, 0.34, 0.71, 0.88, ...]
+    ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
+    top    = ranked[:k]
 
-    # Rendit kandidatët sipas score-it të cross-encoder, nga i larti
-    ranked = sorted(
-        zip(scores, candidates),
-        key=lambda x: x[0],
-        reverse=True,
-    )
-
-    # ── Faza 3: Merr top-k pas reranking-ut ──
-    top = ranked[:k]
-
-    context_parts = []
-    sources       = []
+    context_parts, sources = [], []
     for i, (score, hit) in enumerate(top):
         context_parts.append(
             f"Burimi [{i}] ({hit.payload.get('title', '?')}): {hit.payload['text']}"
         )
         sources.append(hit.payload.get("title", "E panjohur"))
 
-    # Confidence: sigmoid(best raw cross-encoder logit) -> [0, 1]
-    # Logit > 0 means the model thinks the chunk is relevant.
-    # sigmoid maps any logit to a probability so we can compare to CONFIDENCE_THRESHOLD.
     best_raw_score = float(ranked[0][0])
     confidence     = 1.0 / (1.0 + math.exp(-best_raw_score))
-
     return "\n\n".join(context_parts), sources, confidence
 
 # --- OpenRouter API Call (non-streaming, used for summarization) ---
@@ -650,27 +625,7 @@ def get_chat_summary(session_id: str):
 
 @app.get("/sessions")
 def list_sessions():
-    return {"sessions": get_all_sessions_with_names()}
-
-
-class RenameRequest(BaseModel):
-    display_name: str = Field(..., min_length=1, max_length=80)
-
-    @field_validator("display_name", mode="before")
-    @classmethod
-    def strip_name(cls, v: str) -> str:
-        return v.strip() if isinstance(v, str) else v
-
-
-@app.patch("/sessions/{session_id}/rename")
-def rename_session_endpoint(session_id: str, req: RenameRequest):
-    """
-    Sets or updates the display name for a session.
-    The session_id stays unchanged — only the human-readable label is updated.
-    Returns the new display name so the frontend can update immediately.
-    """
-    rename_session(session_id, req.display_name)
-    return {"session_id": session_id, "display_name": req.display_name}
+    return {"sessions": get_all_sessions()}
 
 
 # --- Admin endpoints ---
