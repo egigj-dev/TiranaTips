@@ -114,7 +114,7 @@ tirana/
 └── hidden-gems/
 ```
 
-Pages are written in English. The multilingual embedding model handles queries in any language.
+Pages are written in English. Planning to use a multilingual embedding model that handles queries in any language.
 
 ---
 
