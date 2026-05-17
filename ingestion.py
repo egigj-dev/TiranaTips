@@ -89,7 +89,8 @@ def fetch_wiki_pages() -> list[dict]:
 
     documents = []
     for p in pages["data"]["pages"]["list"]:
-        if any(kw in p["path"] for kw in ("banka", "sektori")):
+        #if any(kw in p["path"] for kw in ("tirana",)):
+        if True:  # Merr të gjitha faqet, pa filtrim
             content_q = "query($id:Int!){pages{single(id:$id){content}}}"
             content   = requests.post(
                 WIKI_URL,

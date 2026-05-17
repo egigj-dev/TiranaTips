@@ -52,9 +52,9 @@ CONFIDENCE_THRESHOLD = 0.15
 INGEST_INTERVAL_HOURS = 24   # re-ingest Wikipedia cdo 24 ore
 
 FALLBACK_MSG = (
-    "Nuk gjeta informacion te mjaftueshem ne bazen e te dhenave per t'iu "
-    "pergjigjur kesaj pyetjeje. Mund te reformuloni pyetjen, ose pyetja "
-    "mund te jete jashte fushes se sektorit bankar shqiptar."
+    "I couldn't find enough information to answer that. "
+    "Try rephrasing your question, or ask me about landmarks, food, "
+    "nightlife, transport, or things to do in Tirana!"
 )
 
 # --- Kufizimi i kërkesave (rate limiting) ---
@@ -295,26 +295,13 @@ class FeedbackRequest(BaseModel):
             raise ValueError("rating duhet të jetë +1 ose -1, jo 0")
         return v
 
-# --- RAG: Kërko në Qdrant ---
-ABBREVIATIONS = {
-    "bsh":   "Banka e Shqipërisë",
-    "amf":   "Autoriteti i Mbikëqyrjes Financiare",
-    "npl":   "kredi me probleme non-performing loans",
-    "gdp":   "prodhim i brendshëm bruto",
-    "car":   "mjaftueshmëria e kapitalit capital adequacy ratio",
-    "roe":   "kthimi nga kapitali return on equity",
-    "roa":   "kthimi nga aktivet return on assets",
-    "ecb":   "Banka Qendrore Europiane",
-    "imf":   "Fondi Monetar Ndërkombëtar",
-}
-
-def expand_abbreviations(text: str) -> str:
-    words = text.lower().split()
-    expanded = []
-    for w in words:
-        clean = w.strip("?,.")
-        expanded.append(ABBREVIATIONS.get(clean, w))
-    return " ".join(expanded)
+# def expand_abbreviations(text: str) -> str:
+#     words = text.lower().split()
+#     expanded = []
+#     for w in words:
+#         clean = w.strip("?,.")
+#         expanded.append(ABBREVIATIONS.get(clean, w))
+#     return " ".join(expanded)
 
 def _rrf(results_a, results_b, k: int = 60) -> list:
     """Reciprocal Rank Fusion — merges two ranked lists."""
@@ -480,8 +467,8 @@ async def chat_stream(request: Request, req: ChatRequest):
     # retrieve_context() is synchronous (it calls the embedding model).
     # asyncio.to_thread() runs it in a background thread so it doesn't block
     # the async event loop while the embedding model is computing.
-    expanded_question            = expand_abbreviations(req.question)
-    context, sources, confidence = await asyncio.to_thread(retrieve_context, expanded_question)
+    # expanded_question            = expand_abbreviations(req.question)
+    context, sources, confidence = await asyncio.to_thread(retrieve_context, req.question)
 
     # Confidence check: return fallback without calling the LLM
     if confidence < CONFIDENCE_THRESHOLD:
@@ -496,13 +483,14 @@ async def chat_stream(request: Request, req: ChatRequest):
     history = get_history(req.session_id, limit=6)
     summary = get_summary(req.session_id)
 
-    system_prompt = f"""Ti je një ekspert i sektorit bankar në Shqipëri.
-Përgjigju VETËM duke u bazuar në kontekstin e mëposhtëm. Nëse informacioni nuk gjendet, thuaj "Nuk kam informacion për këtë".
-KONTEKSTI:
+    system_prompt = f"""You are a friendly and knowledgeable local guide for Tirana, Albania.
+Detect the language of the user's question and always reply in that same language.
+Base your answer ONLY on the context below. If the information is not found, say so briefly and suggest the user rephrase.
+CONTEXT:
 {context}
 """
     if summary:
-        system_prompt += f"\nPËRMBLEDHJA E BISEDËS SË MËPARSHME:\n{summary}"
+        system_prompt += f"\nSUMMARY OF PREVIOUS CONVERSATION:\n{summary}"
 
     messages_to_send = [{"role": "system", "content": system_prompt}]
     messages_to_send.extend(history)
@@ -566,8 +554,8 @@ def chat(request: Request, req: ChatRequest):
             from_cache=True
         )
 
-    expanded_question            = expand_abbreviations(req.question)
-    context, sources, confidence = retrieve_context(expanded_question)
+    # expanded_question            = expand_abbreviations(req.question)
+    context, sources, confidence = retrieve_context(req.question)
 
     if confidence < CONFIDENCE_THRESHOLD:
         return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
@@ -575,9 +563,10 @@ def chat(request: Request, req: ChatRequest):
     history = get_history(req.session_id, limit=6)
     summary = get_summary(req.session_id)
 
-    system_prompt = f"""Ti je një ekspert i sektorit bankar në Shqipëri.
-Përgjigju VETËM duke u bazuar në kontekstin e mëposhtëm. Nëse informacioni nuk gjendet, thuaj "Nuk kam informacion për këtë".
-KONTEKSTI:
+    system_prompt = f"""You are a friendly and knowledgeable local guide for Tirana, Albania.
+Detect the language of the user's question and always reply in that same language.
+Base your answer ONLY on the context below. If the information is not found, say so briefly and suggest the user rephrase.
+CONTEXT:
 {context}
 """
     if summary:
