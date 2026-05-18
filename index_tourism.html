@@ -994,11 +994,20 @@
   </div>
 
   <div class="model-selector" style="margin-left: 20px;">
-    <button class="model-pill active" onclick="selectModel(this,'meta-llama/llama-4-scout','Llama 4 Scout')">
+    <button class="model-pill active" onclick="selectModel(this,'auto','⚡ Auto')">
+      ⚡ Auto
+    </button>
+    <button class="model-pill" onclick="selectModel(this,'meta-llama/llama-4-scout','Llama 4 Scout')">
       Llama 4 Scout
     </button>
     <button class="model-pill" onclick="selectModel(this,'mistralai/ministral-8b-2512','Ministral 8B')">
       Ministral 8B
+    </button>
+    <button class="model-pill" onclick="selectModel(this,'deepseek/deepseek-chat','DeepSeek V3')">
+      DeepSeek V3
+    </button>
+    <button class="model-pill" onclick="selectModel(this,'google/gemini-flash-1.5-8b','Gemini Flash 8B')">
+      Gemini Flash
     </button>
   </div>
 
@@ -1089,14 +1098,14 @@
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script>
-  const API = 'http://localhost:8000';
+  const API = 'http://84.8.251.50:8000';
   marked.use({ breaks: true });
 
   let panelOpen  = false;
   let activeTab  = 'history';
   let msgCount   = 0;
-  let activeModel     = 'meta-llama/llama-4-scout';
-  let activeModelName = 'Llama 4 Scout';
+  let activeModel     = 'auto';
+  let activeModelName = '⚡ Auto';
 
   function selectModel(btn, model, name) {
     activeModel     = model;
