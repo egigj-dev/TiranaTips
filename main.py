@@ -23,9 +23,11 @@ from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, SparseVector,
 )
-from database import save_message, get_history, save_summary, get_summary
+from database import (save_message, get_history, save_summary, get_summary,
+                       get_all_sessions, get_all_sessions_with_names,
+                       rename_session, get_session_name,
+                       save_feedback, get_feedback_stats)
 from fastapi.middleware.cors import CORSMiddleware
-from database import save_message, get_history, save_summary, get_summary, get_all_sessions, save_feedback, get_feedback_stats
 import hashlib, time, math, uuid
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
@@ -61,12 +63,26 @@ FALLBACK_MSG = (
 RATE_LIMIT = "20/minute"   # max kërkesa për IP për minutë
 
 # --- Modelet e lejuara (allowlist) ---
-# Nëse shton modele të reja në UI, shtoji edhe këtu.
-# Kjo parandalon dërgimin e string-eve arbitrare tek OpenRouter API.
+# Nese shton modele te reja ne UI, shtoji edhe ketu.
 ALLOWED_MODELS: set[str] = {
-    "meta-llama/llama-4-scout",
-    "mistralai/ministral-8b-2512",
+    "meta-llama/llama-4-scout",       # best quality
+    "mistralai/ministral-8b-2512",    # mid-tier
+    "deepseek/deepseek-chat",         # DeepSeek V3 — cheap, very capable
+    "google/gemini-flash-1.5-8b",     # Gemini Flash 8B — fast, cheap
+    "auto",                           # router picks for you
 }
+
+# --- Model router ---
+# "auto" routes by query complexity to balance cost vs quality.
+# Simple/short → Gemini Flash 8B (fastest, cheapest)
+# Complex/planning → DeepSeek V3 (better reasoning, still cheap)
+def route_model(question: str) -> str:
+    words = question.split()
+    if len(words) >= 10 or any(w in question.lower() for w in (
+        "week", "plan", "itinerary", "compare", "difference", "route", "recommend", "suggest"
+    )):
+        return "deepseek/deepseek-chat"
+    return "google/gemini-flash-1.5-8b"
 
 scheduler = AsyncIOScheduler(timezone="UTC")
 
@@ -147,7 +163,7 @@ def _fetch_wiki_pages() -> list[dict]:
 
     documents = []
     for p in pages:
-        if any(kw in p["path"] for kw in ("banka", "sektori")):
+        if True:
             cq      = "query($id:Int!){pages{single(id:$id){content}}}"
             content = requests.post(
                 wiki_url,
@@ -295,6 +311,14 @@ class FeedbackRequest(BaseModel):
             raise ValueError("rating duhet të jetë +1 ose -1, jo 0")
         return v
 
+class RenameRequest(BaseModel):
+    display_name: str = Field(..., min_length=1, max_length=80)
+
+    @field_validator("display_name", mode="before")
+    @classmethod
+    def strip_name(cls, v: str) -> str:
+        return v.strip() if isinstance(v, str) else v
+
 # def expand_abbreviations(text: str) -> str:
 #     words = text.lower().split()
 #     expanded = []
@@ -315,6 +339,46 @@ def _rrf(results_a, results_b, k: int = 60) -> list:
         docs[hit.id] = hit
     ranked_ids = sorted(scores, key=lambda i: scores[i], reverse=True)
     return [docs[i] for i in ranked_ids]
+
+
+def contextualize_query(question: str, history: list[dict]) -> str:
+    """
+    Expand vague follow-ups using conversation history — no LLM call needed.
+
+    Why: short queries like "more", "and?" or "tell me more" have almost no
+    semantic content, so embedding them produces a near-random vector that
+    retrieves poor chunks → cross-encoder gives low scores → confidence < threshold.
+
+    Fix: when a query looks like a follow-up (short, or starts with a pronoun/
+    continuation word), prepend the last user turn so the retrieval query is
+    semantically rich again.
+
+    Example:
+        history[-1].user = "Top landmarks to visit"
+        question          = "more"
+        → retrieval query = "Top landmarks to visit more"
+    """
+    FOLLOWUP_STARTERS = {
+        "more", "and", "also", "tell", "what", "why", "how", "when",
+        "where", "which", "give", "list", "show", "any", "ok", "okay",
+        "yes", "continue", "go", "next", "another",
+    }
+    words = question.strip().split()
+    is_short    = len(words) <= 4
+    is_followup = words[0].lower().rstrip("?,.") in FOLLOWUP_STARTERS if words else False
+
+    if not (is_short or is_followup) or not history:
+        return question
+
+    last_user = next(
+        (m["content"] for m in reversed(history) if m["role"] == "user"),
+        None,
+    )
+    if not last_user or last_user.strip() == question.strip():
+        return question
+
+    # Combine: last context + current question gives the retriever a full picture
+    return f"{last_user.strip()} {question.strip()}"
 
 
 def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], float]:
@@ -443,7 +507,11 @@ async def chat_stream(request: Request, req: ChatRequest):
         {"type": "token",   "token": "word"}    — one per token
         {"type": "done"}                         — signals the stream is finished
     """
-    model = req.model or CHOSEN_MODEL
+    # Resolve model: "auto" triggers router, None falls back to env default
+    if req.model == "auto":
+        model = route_model(req.question)
+    else:
+        model = req.model or CHOSEN_MODEL
 
     # --- Cache check: serve cached answers instantly ---
     key    = cache_key(req.question)
@@ -463,12 +531,16 @@ async def chat_stream(request: Request, req: ChatRequest):
 
         return StreamingResponse(replay_cached(), media_type="text/event-stream")
 
+    # --- Contextualize follow-up queries before retrieval ---
+    # Must fetch history first so contextualize_query can use it.
+    history = get_history(req.session_id, limit=6)
+    retrieval_query = contextualize_query(req.question, history)
+
     # --- RAG: retrieve context ---
     # retrieve_context() is synchronous (it calls the embedding model).
     # asyncio.to_thread() runs it in a background thread so it doesn't block
     # the async event loop while the embedding model is computing.
-    # expanded_question            = expand_abbreviations(req.question)
-    context, sources, confidence = await asyncio.to_thread(retrieve_context, req.question)
+    context, sources, confidence = await asyncio.to_thread(retrieve_context, retrieval_query)
 
     # Confidence check: return fallback without calling the LLM
     if confidence < CONFIDENCE_THRESHOLD:
@@ -480,7 +552,7 @@ async def chat_stream(request: Request, req: ChatRequest):
             yield f'data: {json.dumps({"type": "done"})}\n\n'
         return StreamingResponse(low_confidence_stream(), media_type="text/event-stream")
 
-    history = get_history(req.session_id, limit=6)
+    # history already fetched above for query contextualization
     summary = get_summary(req.session_id)
 
     system_prompt = f"""You are a friendly and knowledgeable local guide for Tirana, Albania.
@@ -542,7 +614,10 @@ CONTEXT:
 @limiter.limit(RATE_LIMIT)
 def chat(request: Request, req: ChatRequest):
     # `request` kërkohet nga slowapi — shih shënimin tek /chat/stream.
-    model = req.model or CHOSEN_MODEL
+    if req.model == "auto":
+        model = route_model(req.question)
+    else:
+        model = req.model or CHOSEN_MODEL
 
     key    = cache_key(req.question)
     cached = _cache.get(key)
@@ -554,13 +629,14 @@ def chat(request: Request, req: ChatRequest):
             from_cache=True
         )
 
-    # expanded_question            = expand_abbreviations(req.question)
-    context, sources, confidence = retrieve_context(req.question)
+    history = get_history(req.session_id, limit=6)
+    retrieval_query = contextualize_query(req.question, history)
+    context, sources, confidence = retrieve_context(retrieval_query)
 
     if confidence < CONFIDENCE_THRESHOLD:
         return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
 
-    history = get_history(req.session_id, limit=6)
+    # history already fetched above for contextualization
     summary = get_summary(req.session_id)
 
     system_prompt = f"""You are a friendly and knowledgeable local guide for Tirana, Albania.
@@ -614,7 +690,12 @@ def get_chat_summary(session_id: str):
 
 @app.get("/sessions")
 def list_sessions():
-    return {"sessions": get_all_sessions()}
+    return {"sessions": get_all_sessions_with_names()}
+
+@app.patch("/sessions/{session_id}/rename")
+def rename_session_endpoint(session_id: str, req: RenameRequest):
+    rename_session(session_id, req.display_name)
+    return {"session_id": session_id, "display_name": req.display_name}
 
 
 # --- Admin endpoints ---
@@ -642,6 +723,11 @@ def submit_feedback(request: Request, req: FeedbackRequest):
     tashmë se cila buton u klikua.
     """
     save_feedback(req.session_id, req.question, req.rating)
+
+    # Thumbs-down: evict from cache so the next request gets a fresh answer.
+    if req.rating == -1:
+        _cache.pop(cache_key(req.question), None)
+
     return {"saved": True}
 
 
