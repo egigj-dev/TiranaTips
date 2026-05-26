@@ -37,6 +37,7 @@ from qdrant_client.models import (
 
 load_dotenv()
 
+TAVILY_API_KEY     = "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" # TODO: change to os.getenv("TAVILY_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
 QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
@@ -58,6 +59,76 @@ FALLBACK_MSG = (
     "Try rephrasing your question, or ask me about landmarks, food, "
     "nightlife, transport, or things to do in Tirana!"
 )
+
+# ---------------------------------------------------------------------------
+# Web search fallback (Tavily)
+# ---------------------------------------------------------------------------
+# Keywords that indicate the query is time-sensitive and won't be answered
+# by the static knowledge base — skip RAG entirely for these and go to web.
+TIME_SENSITIVE_KEYWORDS = {
+    "event", "events", "concert", "festival", "tonight", "today",
+    "this week", "this weekend", "new", "open now", "opening", "just opened",
+    "recently", "latest", "2024", "2025", "2026",
+}
+
+def _is_time_sensitive(question: str) -> bool:
+    """Return True if the question contains any time-sensitive keyword."""
+    q_lower = question.lower()
+    return any(kw in q_lower for kw in TIME_SENSITIVE_KEYWORDS)
+
+
+def web_search(question: str) -> tuple[str, list[dict]]:
+    """
+    Search the web via Tavily and return (context_text, sources).
+
+    sources is a list of dicts: [{"title": ..., "url": ..., "type": "web"}]
+
+    The context_text mirrors the format of retrieve_context() so the LLM
+    prompt template does not need a separate branch.
+
+    Returns ("", []) if TAVILY_API_KEY is unset or the request fails.
+    """
+    if not TAVILY_API_KEY:
+        print("[WebSearch] TAVILY_API_KEY not set — skipping web fallback.")
+        return "", []
+
+    # Always anchor searches to Tirana/Albania so results stay on-topic.
+    scoped_query = f"{question} Tirana Albania"
+
+    try:
+        resp = requests.post(
+            "https://api.tavily.com/search",
+            json={
+                "api_key":        TAVILY_API_KEY,
+                "query":          scoped_query,
+                "search_depth":   "basic",   # "advanced" costs more credits
+                "max_results":    5,
+                "include_answer": True,      # Tavily also returns a short summary
+            },
+            timeout=10,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"[WebSearch] Tavily request failed: {e}")
+        return "", []
+
+    results = data.get("results", [])
+    if not results:
+        return "", []
+
+    context_parts = []
+    sources = []
+    for i, r in enumerate(results[:4]):   # cap at 4 results
+        title   = r.get("title", "Web result")
+        url     = r.get("url", "")
+        content = r.get("content", "").strip()
+        if content:
+            context_parts.append(f"Burimi [{i}] ({title}): {content}")
+            sources.append({"title": title, "url": url, "type": "web"})
+
+    return "\n\n".join(context_parts), sources
+
 
 # --- Kufizimi i kërkesave (rate limiting) ---
 RATE_LIMIT = "20/minute"   # max kërkesa për IP për minutë
@@ -418,7 +489,10 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], f
         context_parts.append(
             f"Burimi [{i}] ({hit.payload.get('title', '?')}): {hit.payload['text']}"
         )
-        sources.append(hit.payload.get("title", "E panjohur"))
+        sources.append({
+            "title": hit.payload.get("title", "E panjohur"),
+            "type":  "local",
+        })
 
     best_raw_score = float(ranked[0][0])
     confidence     = 1.0 / (1.0 + math.exp(-best_raw_score))
@@ -447,12 +521,12 @@ def call_llm(messages: list[dict], model: str) -> str:
 async def stream_llm_tokens(messages: list[dict], model: str):
     """
     Calls OpenRouter with stream=True and yields each text token as it arrives.
-    
+
     OpenRouter sends back lines that look like:
         data: {"choices": [{"delta": {"content": "Raporti"}}]}
         data: {"choices": [{"delta": {"content": " NPL"}}]}
         data: [DONE]
-    
+
     We parse each line, extract the token text, and yield it.
     """
     async with httpx.AsyncClient(timeout=60) as client:
@@ -500,7 +574,7 @@ async def chat_stream(request: Request, req: ChatRequest):
     # Nuk e përdorim drejtpërdrejt — slowapi e lexon vetë nga dekoratori.
     """
     Streams the LLM response token by token using Server-Sent Events (SSE).
-    
+
     The frontend connects with fetch() and reads the body as a ReadableStream.
     We send three types of SSE messages:
         {"type": "sources", "sources": [...]}   — sent first, before any tokens
@@ -536,27 +610,49 @@ async def chat_stream(request: Request, req: ChatRequest):
     history = get_history(req.session_id, limit=6)
     retrieval_query = contextualize_query(req.question, history)
 
-    # --- RAG: retrieve context ---
-    # retrieve_context() is synchronous (it calls the embedding model).
+    # --- RAG: retrieve context, or skip to web for time-sensitive queries ---
+    # retrieve_context() is synchronous (calls the embedding model).
     # asyncio.to_thread() runs it in a background thread so it doesn't block
     # the async event loop while the embedding model is computing.
-    context, sources, confidence = await asyncio.to_thread(retrieve_context, retrieval_query)
+    if _is_time_sensitive(retrieval_query):
+        # Static knowledge base can't answer time-sensitive questions — go straight to web
+        context, sources, confidence = "", [], 0.0
+    else:
+        context, sources, confidence = await asyncio.to_thread(retrieve_context, retrieval_query)
 
-    # Confidence check: return fallback without calling the LLM
+    # If RAG confidence is too low (or query was time-sensitive), fall back to web search
     if confidence < CONFIDENCE_THRESHOLD:
-        async def low_confidence_stream():
-            msg = json.dumps({"type": "low_confidence",
-                              "confidence": round(confidence, 3),
-                              "message": FALLBACK_MSG})
-            yield f"data: {msg}\n\n"
-            yield f'data: {json.dumps({"type": "done"})}\n\n'
-        return StreamingResponse(low_confidence_stream(), media_type="text/event-stream")
+        web_context, web_sources = await asyncio.to_thread(web_search, req.question)
+
+        if not web_context:
+            # Web search also came up empty — emit the static fallback message
+            async def low_confidence_stream():
+                msg = json.dumps({"type": "low_confidence",
+                                  "confidence": round(confidence, 3),
+                                  "message": FALLBACK_MSG})
+                yield f"data: {msg}\n\n"
+                yield f'data: {json.dumps({"type": "done"})}\n\n'
+            return StreamingResponse(low_confidence_stream(), media_type="text/event-stream")
+
+        # Use live web results as context instead
+        context = web_context
+        sources = web_sources
 
     # history already fetched above for query contextualization
     summary = get_summary(req.session_id)
 
+    # Tell the LLM whether context is from the local KB or live web, and ask for citations
+    has_web_sources = any(s.get("type") == "web" for s in sources)
+    source_note = (
+        "The context below comes from live web search results. "
+        "At the end of your answer, briefly mention the source(s) you used."
+        if has_web_sources else
+        "The context below comes from our local knowledge base about Tirana."
+    )
+
     system_prompt = f"""You are a friendly and knowledgeable local guide for Tirana, Albania.
 Detect the language of the user's question and always reply in that same language.
+{source_note}
 Base your answer ONLY on the context below. If the information is not found, say so briefly and suggest the user rephrase.
 CONTEXT:
 {context}
@@ -631,16 +727,33 @@ def chat(request: Request, req: ChatRequest):
 
     history = get_history(req.session_id, limit=6)
     retrieval_query = contextualize_query(req.question, history)
-    context, sources, confidence = retrieve_context(retrieval_query)
+
+    if _is_time_sensitive(retrieval_query):
+        context, sources, confidence = "", [], 0.0
+    else:
+        context, sources, confidence = retrieve_context(retrieval_query)
 
     if confidence < CONFIDENCE_THRESHOLD:
-        return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
+        web_context, web_sources = web_search(req.question)
+        if not web_context:
+            return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
+        context = web_context
+        sources = web_sources
 
     # history already fetched above for contextualization
     summary = get_summary(req.session_id)
 
+    has_web_sources = any(s.get("type") == "web" for s in sources)
+    source_note = (
+        "The context below comes from live web search results. "
+        "At the end of your answer, briefly mention the source(s) you used."
+        if has_web_sources else
+        "The context below comes from our local knowledge base about Tirana."
+    )
+
     system_prompt = f"""You are a friendly and knowledgeable local guide for Tirana, Albania.
 Detect the language of the user's question and always reply in that same language.
+{source_note}
 Base your answer ONLY on the context below. If the information is not found, say so briefly and suggest the user rephrase.
 CONTEXT:
 {context}
