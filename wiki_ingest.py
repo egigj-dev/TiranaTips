@@ -52,7 +52,7 @@ if __name__ == "__main__":
     print(f"U gjetën {len(pages)} faqe në Wiki.js.")
 
     for page in pages:
-        if "banka-shqiperise" in page['path'] or "sektori-financiar" in page['path']:
+        if "tirane" in page['path'] or "tirana" in page['path']:
             content = get_page_content(page['id'])
             print(f"\n--- Duke procesuar: {page['title']} ---")
             print(f"Gjatësia e tekstit: {len(content)} karaktere.")

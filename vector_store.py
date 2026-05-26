@@ -21,7 +21,7 @@ def get_all_wiki_data():
 
     documents = []
     for p in res['data']['pages']['list']:
-        if "banka" in p['path'] or "sektori" in p['path']:
+        if "tirana" in p['path'] or "sektori" in p['path']:
             content_query = "query($id:Int!){pages{single(id:$id){content}}}"
             c_res = requests.post(
                 WIKI_URL,

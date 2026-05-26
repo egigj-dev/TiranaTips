@@ -154,7 +154,7 @@ qdrant = QdrantClient(url=QDRANT_URL)
 # tashme (embeddings, sparse_model, qdrant) pa koston shtese te ngarkimit.
 
 def _fetch_wiki_pages() -> list[dict]:
-    """Merr faqet relevante bankare nga Wiki.js."""
+    """Merr faqet relevante nga Wiki.js."""
     headers  = {"Authorization": f"Bearer {os.getenv('WIKI_TOKEN')}"}
     wiki_url = os.getenv("WIKI_URL")
     list_q   = "{ pages { list { id title path } } }"

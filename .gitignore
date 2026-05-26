@@ -45,3 +45,5 @@ database_v1.py
 postgres_data/
 wiki_data/
 wikijs-backup.dump
+validate.py
+validation_reports

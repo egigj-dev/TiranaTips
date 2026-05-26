@@ -23,7 +23,7 @@ def ask_ai(question):
     context = "\n\n".join([f"Burimi [{i}]: {d.page_content}" for i, d in enumerate(docs)])
 
     # Prompt Engineering
-    prompt = f"""Ti je një ekspert i sektorit bankar në Shqipëri. 
+    prompt = f"""Ti je një ekspert i Tiranës dhe turizmit. 
 Përgjigju vetëm duke u bazuar në kontekstin e mëposhtëm.
 
 KONTEKSTI:
