@@ -18,7 +18,9 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 from langchain_huggingface import HuggingFaceEmbeddings
 from fastembed import SparseTextEmbedding
-from sentence_transformers import CrossEncoder
+from optimum.onnxruntime import ORTModelForSequenceClassification
+from transformers import AutoTokenizer
+import numpy as np
 from qdrant_client import QdrantClient
 from qdrant_client.models import (
     Distance, VectorParams, SparseVector,
@@ -37,22 +39,21 @@ from qdrant_client.models import (
 
 load_dotenv()
 
-TAVILY_API_KEY     = "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" # TODO: change to os.getenv("TAVILY_API_KEY")
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
 QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL")
+TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback disabled if unset
+
 COLLECTION_NAME  = "wiki_banking"
 RERANK_MODEL     = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 FETCH_K          = 10   # kandidatë nga Qdrant para reranking-ut
 FINAL_K          = 3    # rezultate finale që i dërgohen LLM-it
 
 # --- Confidence threshold ---
-# Nese score-i me i larte i cross-encoder (pas sigmoid) eshte nen kete prag,
-# sistemi refuzon te pergjigjet dhe kthen nje mesazh fallback.
 CONFIDENCE_THRESHOLD = 0.15
 
-INGEST_INTERVAL_HOURS = 24   # re-ingest Wikipedia cdo 24 ore
+INGEST_INTERVAL_HOURS = 24
 
 FALLBACK_MSG = (
     "I couldn't find enough information to answer that. "
@@ -60,11 +61,27 @@ FALLBACK_MSG = (
     "nightlife, transport, or things to do in Tirana!"
 )
 
+# --- Rate limiting ---
+RATE_LIMIT = "20/minute"
+
+# --- Allowed models ---
+ALLOWED_MODELS: set[str] = {
+    "meta-llama/llama-4-scout",
+    "mistralai/ministral-8b-2512",
+    "deepseek/deepseek-chat",
+    "google/gemini-flash-1.5-8b",
+    "auto",
+}
+
 # ---------------------------------------------------------------------------
 # Web search fallback (Tavily)
 # ---------------------------------------------------------------------------
-# Keywords that indicate the query is time-sensitive and won't be answered
-# by the static knowledge base — skip RAG entirely for these and go to web.
+# Used when RAG confidence is below threshold OR the query is time-sensitive
+# (events, concerts, "tonight", "this week", etc.) which the static KB can't answer.
+# Scoped to "Tirana Albania" so results stay on-topic.
+# Returns ("", []) when TAVILY_API_KEY is unset — web fallback silently disabled.
+# ---------------------------------------------------------------------------
+
 TIME_SENSITIVE_KEYWORDS = {
     "event", "events", "concert", "festival", "tonight", "today",
     "this week", "this weekend", "new", "open now", "opening", "just opened",
@@ -72,19 +89,16 @@ TIME_SENSITIVE_KEYWORDS = {
 }
 
 def _is_time_sensitive(question: str) -> bool:
-    """Return True if the question contains any time-sensitive keyword."""
     q_lower = question.lower()
     return any(kw in q_lower for kw in TIME_SENSITIVE_KEYWORDS)
 
 
-def web_search(question: str) -> tuple[str, list[dict]]:
+def web_search(question: str) -> tuple[str, list[str]]:
     """
-    Search the web via Tavily and return (context_text, sources).
+    Search the web via Tavily and return (context_text, sources_list).
 
-    sources is a list of dicts: [{"title": ..., "url": ..., "type": "web"}]
-
-    The context_text mirrors the format of retrieve_context() so the LLM
-    prompt template does not need a separate branch.
+    sources_list is a flat list of strings (title — url) to match the format
+    expected by the rest of the pipeline and the frontend source tags.
 
     Returns ("", []) if TAVILY_API_KEY is unset or the request fails.
     """
@@ -92,7 +106,6 @@ def web_search(question: str) -> tuple[str, list[dict]]:
         print("[WebSearch] TAVILY_API_KEY not set — skipping web fallback.")
         return "", []
 
-    # Always anchor searches to Tirana/Albania so results stay on-topic.
     scoped_query = f"{question} Tirana Albania"
 
     try:
@@ -101,9 +114,9 @@ def web_search(question: str) -> tuple[str, list[dict]]:
             json={
                 "api_key":        TAVILY_API_KEY,
                 "query":          scoped_query,
-                "search_depth":   "basic",   # "advanced" costs more credits
+                "search_depth":   "basic",
                 "max_results":    5,
-                "include_answer": True,      # Tavily also returns a short summary
+                "include_answer": True,
             },
             timeout=10,
         )
@@ -118,35 +131,23 @@ def web_search(question: str) -> tuple[str, list[dict]]:
         return "", []
 
     context_parts = []
-    sources = []
-    for i, r in enumerate(results[:4]):   # cap at 4 results
+    sources       = []
+    for i, r in enumerate(results[:4]):
         title   = r.get("title", "Web result")
         url     = r.get("url", "")
         content = r.get("content", "").strip()
         if content:
             context_parts.append(f"Burimi [{i}] ({title}): {content}")
-            sources.append({"title": title, "url": url, "type": "web"})
+            # Keep sources as plain strings so the frontend source tags work unchanged
+            sources.append(f"{title} — {url}" if url else title)
 
     return "\n\n".join(context_parts), sources
 
 
-# --- Kufizimi i kërkesave (rate limiting) ---
-RATE_LIMIT = "20/minute"   # max kërkesa për IP për minutë
+# ---------------------------------------------------------------------------
+# Model router
+# ---------------------------------------------------------------------------
 
-# --- Modelet e lejuara (allowlist) ---
-# Nese shton modele te reja ne UI, shtoji edhe ketu.
-ALLOWED_MODELS: set[str] = {
-    "meta-llama/llama-4-scout",       # best quality
-    "mistralai/ministral-8b-2512",    # mid-tier
-    "deepseek/deepseek-chat",         # DeepSeek V3 — cheap, very capable
-    "google/gemini-flash-1.5-8b",     # Gemini Flash 8B — fast, cheap
-    "auto",                           # router picks for you
-}
-
-# --- Model router ---
-# "auto" routes by query complexity to balance cost vs quality.
-# Simple/short → Gemini Flash 8B (fastest, cheapest)
-# Complex/planning → DeepSeek V3 (better reasoning, still cheap)
 def route_model(question: str) -> str:
     words = question.split()
     if len(words) >= 10 or any(w in question.lower() for w in (
@@ -155,28 +156,141 @@ def route_model(question: str) -> str:
         return "deepseek/deepseek-chat"
     return "google/gemini-flash-1.5-8b"
 
+
+# ---------------------------------------------------------------------------
+# Translation layer (LLM-based, DeepSeek V3 via OpenRouter)
+# ---------------------------------------------------------------------------
+# Translates the user question to English before retrieval (optimal for the
+# embedding model and BM25), then translates the English answer back to the
+# user's language at the end. Any model in the chain only needs to handle
+# English, making it model-agnostic.
+#
+# DeepSeek V3 (~$0.07/1M tokens) is used — cheap, reliable, good Albanian.
+# Kept separate from CHOSEN_MODEL so swapping the RAG model never affects
+# translation quality.
+#
+# Fallback: if any call fails, the original text is returned and the pipeline
+# continues — the app degrades gracefully rather than crashing.
+# ---------------------------------------------------------------------------
+
+TRANSLATION_MODEL = "deepseek/deepseek-chat"
+
+
+async def translate_question_to_english(question: str) -> tuple[str, str]:
+    """
+    Translate the user's question to English for retrieval.
+
+    Returns (english_question, detected_language_code).
+    The detected language is used at the end to translate the answer back.
+
+    If the question is already English or the call fails, returns
+    (original_question, "en") so the pipeline continues unchanged.
+    """
+    try:
+        async with httpx.AsyncClient(timeout=15) as client:
+            res = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": TRANSLATION_MODEL,
+                    "temperature": 0,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a language detector and translator. "
+                                "When given a text, detect its language and translate it to English. "
+                                'Respond with JSON only: {"language": "<2-letter ISO 639-1 code>", "translation": "<english text>"}'
+                            ),
+                        },
+                        {
+                            "role": "user",
+                            "content": question,
+                        },
+                    ],
+                },
+            )
+        data = res.json()
+        raw  = data["choices"][0]["message"]["content"].strip()
+        print(f"[Translate] question raw response: {raw[:120]}")
+        if raw.startswith("```"):
+            raw = raw.split("```")[1]
+            if raw.startswith("json"):
+                raw = raw[4:]
+        parsed   = json.loads(raw.strip())
+        language = parsed.get("language", "en")
+        english  = parsed.get("translation", question)
+        print(f"[Translate] detected='{language}', english='{english[:80]}'")
+        if language == "en":
+            return question, "en"
+        return english, language
+    except Exception as e:
+        print(f"[Translate] WARNING: question translation failed ({e}), using original.")
+        return question, "en"
+
+
+async def translate_answer_to_language(answer: str, language: str) -> str:
+    """
+    Translate the English answer back to the user's language.
+
+    Returns the translated string, or the original answer on any failure.
+    Skips the LLM call entirely if the target is already English.
+    """
+    if not language or language == "en":
+        return answer
+    try:
+        async with httpx.AsyncClient(timeout=30) as client:
+            res = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": TRANSLATION_MODEL,
+                    "temperature": 0,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": f"You are a translator. Translate user messages to {language}. Output only the translation, nothing else.",
+                        },
+                        {
+                            "role": "user",
+                            "content": answer,
+                        },
+                    ],
+                },
+            )
+        data = res.json()
+        if "choices" not in data:
+            print(f"[Translate] ERROR: unexpected OpenRouter response: {json.dumps(data)[:300]}")
+            return answer
+        result = data["choices"][0]["message"]["content"].strip()
+        print(f"[Translate] answer translated to '{language}': {result[:80]}")
+        return result
+    except Exception as e:
+        print(f"[Translate] WARNING: answer translation failed ({e}), using English.")
+        return answer
+
+
+# ---------------------------------------------------------------------------
+# Scheduler
+# ---------------------------------------------------------------------------
+
 scheduler = AsyncIOScheduler(timezone="UTC")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """
-    FastAPI lifespan handler — ekzekutohet kur serveri nis dhe ndalet.
-
-    Pse lifespan dhe jo @app.on_event("startup")?
-    @app.on_event eshte deprecated ne FastAPI >= 0.93. Lifespan eshte
-    menyra moderne dhe e sigurt — garanton qe scheduler ndalet edhe nese
-    serveri ndalet me gabim (exception gjate startup).
-
-    async with lifespan: kodi para `yield` = startup, pas `yield` = shutdown.
-    """
-    # Regjistro job-in e ingestion-it (fillon pas 1 minute, pastaj cdo 24h)
     scheduler.add_job(
         run_ingestion_job,
         "interval",
         hours=INGEST_INTERVAL_HOURS,
         id="wiki_ingest",
         replace_existing=True,
-        misfire_grace_time=300,   # nese serveri ishte offline, toleroj 5 min vonese
+        misfire_grace_time=300,
     )
     scheduler.start()
     print(f"Scheduler started — ingestion cdo {INGEST_INTERVAL_HOURS}h.")
@@ -184,13 +298,15 @@ async def lifespan(app: FastAPI):
     scheduler.shutdown()
     print("Scheduler stopped.")
 
-app = FastAPI(title="Banking RAG API", lifespan=lifespan)
 
-# Limiter: gjurmon kërkesat sipas IP-së së klientit.
-# key_func=get_remote_address lexon X-Forwarded-For ose IP direkt.
+# ---------------------------------------------------------------------------
+# App setup
+# ---------------------------------------------------------------------------
+
+app = FastAPI(title="TiranaTips API", lifespan=lifespan)
+
 limiter = Limiter(key_func=get_remote_address)
 app.state.limiter = limiter
-# Kur limiti kalohet, slowapi kthen automatikisht HTTP 429 Too Many Requests.
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 app.add_middleware(
@@ -200,32 +316,41 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --- Inicializim i modeleve (një herë kur starton serveri) ---
-# Dense model: semantic embeddings (si më parë)
-embeddings = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
+# ---------------------------------------------------------------------------
+# Model initialization (once at startup)
+# ---------------------------------------------------------------------------
 
-# Sparse model: BM25 keyword embeddings (i ri)
-# Shkarkon ~15MB modelin BM25 herën e parë — pastaj ruhet në cache lokale.
-# query_embed() dhe embed() trajtojnë pyetjet dhe dokumentet ndryshe (BM25 standard).
+embeddings   = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25")
 
-# Cross-encoder: reranker (shumë më i saktë se bi-encoder, por më i ngadaltë)
-# Shkarkon ~120MB herën e parë — ruhet në cache. Modeli është shumëgjuhësh.
-cross_encoder = CrossEncoder(RERANK_MODEL)
+# Cross-encoder via ONNX Runtime — CPU-only, no PyTorch/CUDA needed.
+# export=True converts to ONNX on first load and caches it.
+_rerank_tokenizer = AutoTokenizer.from_pretrained(RERANK_MODEL)
+_rerank_model     = ORTModelForSequenceClassification.from_pretrained(
+    RERANK_MODEL,
+    export=True,
+)
+
+def _rerank_scores(pairs: list[list[str]]) -> list[float]:
+    """Score question-chunk pairs. Drop-in replacement for CrossEncoder.predict()."""
+    inputs  = _rerank_tokenizer(
+        [p[0] for p in pairs],
+        [p[1] for p in pairs],
+        padding=True,
+        truncation=True,
+        max_length=512,
+        return_tensors="pt",
+    )
+    outputs = _rerank_model(**inputs)
+    return outputs.logits.squeeze(-1).detach().numpy().tolist()
 
 qdrant = QdrantClient(url=QDRANT_URL)
 
 # ---------------------------------------------------------------------------
-# Ingestion pipeline (async + scheduled)
+# Ingestion pipeline (scheduled + manual trigger)
 # ---------------------------------------------------------------------------
-# Pse e kemi kete ne main.py dhe jo ne ingestion.py?
-# ingestion.py ka module-level side effects (krijon QdrantClient gjate importit).
-# Importimi i tij do hapte nje lidhje te dyte Qdrant me te njejtat skedare —
-# kjo mund te korruptoje te dhenat. Ketu riperdorim objektet qe jane ngarkuar
-# tashme (embeddings, sparse_model, qdrant) pa koston shtese te ngarkimit.
 
 def _fetch_wiki_pages() -> list[dict]:
-    """Merr faqet relevante nga Wiki.js."""
     headers  = {"Authorization": f"Bearer {os.getenv('WIKI_TOKEN')}"}
     wiki_url = os.getenv("WIKI_URL")
     list_q   = "{ pages { list { id title path } } }"
@@ -234,39 +359,21 @@ def _fetch_wiki_pages() -> list[dict]:
 
     documents = []
     for p in pages:
-        if True:
-            cq      = "query($id:Int!){pages{single(id:$id){content}}}"
-            content = requests.post(
-                wiki_url,
-                json={"query": cq, "variables": {"id": p["id"]}},
-                headers=headers,
-                timeout=30,
-            ).json()["data"]["pages"]["single"]["content"]
-            documents.append({"text": content, "metadata": {"title": p["title"], "path": p["path"]}})
+        cq      = "query($id:Int!){pages{single(id:$id){content}}}"
+        content = requests.post(
+            wiki_url,
+            json={"query": cq, "variables": {"id": p["id"]}},
+            headers=headers,
+            timeout=30,
+        ).json()["data"]["pages"]["single"]["content"]
+        documents.append({"text": content, "metadata": {"title": p["title"], "path": p["path"]}})
     return documents
 
 
 def _sync_ingestion():
-    """
-    Pipeline i plote i ingestion-it — ekzekutohet ne thread te veçante.
-
-    Hapat:
-      1. Merr faqet nga Wiki.js
-      2. I ndan ne chunks (800 karaktere, 100 overlap)
-      3. Llogarit dense embeddings (semantike)
-      4. Llogarit sparse embeddings (BM25)
-      5. Rifshon koleksionin Qdrant me skeme hibride
-      6. Ngarkon te gjithe pikat ne Qdrant
-
-    Pse rifshon (delete + recreate) dhe nuk ben upsert direkt?
-    Chunking prodhon ID te rastesishme (uuid4). Nese nje faqe Wiki ndryshon,
-    chunks-et e vjetra kane ID te ndryshme nga ato te reja — nuk mund t'i
-    gjeshe dhe t'i fshish saktesisht. Me e sigurt: rifillo me koleksion te ri.
-    """
     import time as _time
     t0 = _time.time()
     print("[Ingest] Duke filluar ingestion...")
-
     try:
         docs = _fetch_wiki_pages()
         if not docs:
@@ -282,13 +389,9 @@ def _sync_ingestion():
             metas.extend([doc["metadata"]] * len(chunks))
         print(f"[Ingest] {len(texts)} chunks pas ndarjes.")
 
-        # Dense embeddings
-        dense_vecs = embeddings.embed_documents(texts)
-
-        # Sparse embeddings (BM25)
+        dense_vecs  = embeddings.embed_documents(texts)
         sparse_embs = list(sparse_model.embed(texts))
 
-        # Rifshij dhe rikrijoje koleksionin me skeme hibride
         existing = [c.name for c in qdrant.get_collections().collections]
         if COLLECTION_NAME in existing:
             qdrant.delete_collection(COLLECTION_NAME)
@@ -298,7 +401,6 @@ def _sync_ingestion():
             sparse_vectors_config={"sparse": SparseVectorParams(index=SparseIndexParams(on_disk=False))},
         )
 
-        # Ngarko ne batch
         batch_size = 100
         for i in range(0, len(texts), batch_size):
             batch_points = [
@@ -322,41 +424,32 @@ def _sync_ingestion():
             ]
             qdrant.upsert(collection_name=COLLECTION_NAME, points=batch_points)
 
-        elapsed = _time.time() - t0
-        print(f"[Ingest] U krye: {len(texts)} pika ne {elapsed:.1f}s.")
-
+        print(f"[Ingest] U krye: {len(texts)} pika ne {_time.time()-t0:.1f}s.")
     except Exception as e:
         print(f"[Ingest] GABIM: {e}")
 
 
 async def run_ingestion_job():
-    """Async wrapper — e ekzekuton _sync_ingestion ne thread te veçante."""
     await asyncio.to_thread(_sync_ingestion)
 
 
-# --- Schema me validim server-side ---
+# ---------------------------------------------------------------------------
+# Request schemas
+# ---------------------------------------------------------------------------
+
 class ChatRequest(BaseModel):
-    # session_id: vetëm karaktere alfanumerike dhe vizë — parandalon SQL/path injection
     session_id: str = Field(..., min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
-
-    # question: i prerë nga hapësirat, min 1 karakter, max 1000
-    question: str = Field(..., min_length=1, max_length=1000)
-
-    # model: opsional, por nëse jepet duhet të jetë në allowlist
-    model: str | None = None
+    question:   str = Field(..., min_length=1, max_length=1000)
+    model:      str | None = None
 
     @field_validator("question", mode="before")
     @classmethod
     def strip_whitespace(cls, v: str) -> str:
-        # Heq hapësirat nga fillimi dhe fundi para validimit të gjatësisë.
-        # Kjo do të thotë se "   " (vetëm hapësira) dështon min_length=1.
         return v.strip() if isinstance(v, str) else v
 
     @field_validator("model", mode="before")
     @classmethod
     def validate_model(cls, v: str | None) -> str | None:
-        # Nëse modeli nuk jepet, lejohet (None → server zgjedh default).
-        # Nëse jepet, duhet të jetë në listën e modeleve të njohura.
         if v is not None and v not in ALLOWED_MODELS:
             allowed = ", ".join(sorted(ALLOWED_MODELS))
             raise ValueError(f"Model i palejuar. Modelet e lejuara: {allowed}")
@@ -368,11 +461,8 @@ class ChatResponse(BaseModel):
     from_cache: bool = False
 
 class FeedbackRequest(BaseModel):
-    # session_id: e njëjta validim si ChatRequest
     session_id: str = Field(..., min_length=1, max_length=64, pattern=r'^[a-zA-Z0-9_-]+$')
-    # question: kopje e pyetjes origjinale, për ta lidhur feedback-un me bisedën
     question:   str = Field(..., min_length=1, max_length=1000)
-    # rating: vetëm +1 (thumbs up) ose -1 (thumbs down) — jo 0, jo vlera të tjera
     rating:     int = Field(..., ge=-1, le=1)
 
     @field_validator("rating")
@@ -390,13 +480,10 @@ class RenameRequest(BaseModel):
     def strip_name(cls, v: str) -> str:
         return v.strip() if isinstance(v, str) else v
 
-# def expand_abbreviations(text: str) -> str:
-#     words = text.lower().split()
-#     expanded = []
-#     for w in words:
-#         clean = w.strip("?,.")
-#         expanded.append(ABBREVIATIONS.get(clean, w))
-#     return " ".join(expanded)
+
+# ---------------------------------------------------------------------------
+# RAG helpers
+# ---------------------------------------------------------------------------
 
 def _rrf(results_a, results_b, k: int = 60) -> list:
     """Reciprocal Rank Fusion — merges two ranked lists."""
@@ -413,28 +500,13 @@ def _rrf(results_a, results_b, k: int = 60) -> list:
 
 
 def contextualize_query(question: str, history: list[dict]) -> str:
-    """
-    Expand vague follow-ups using conversation history — no LLM call needed.
-
-    Why: short queries like "more", "and?" or "tell me more" have almost no
-    semantic content, so embedding them produces a near-random vector that
-    retrieves poor chunks → cross-encoder gives low scores → confidence < threshold.
-
-    Fix: when a query looks like a follow-up (short, or starts with a pronoun/
-    continuation word), prepend the last user turn so the retrieval query is
-    semantically rich again.
-
-    Example:
-        history[-1].user = "Top landmarks to visit"
-        question          = "more"
-        → retrieval query = "Top landmarks to visit more"
-    """
+    """Expand vague follow-ups using conversation history."""
     FOLLOWUP_STARTERS = {
         "more", "and", "also", "tell", "what", "why", "how", "when",
         "where", "which", "give", "list", "show", "any", "ok", "okay",
         "yes", "continue", "go", "next", "another",
     }
-    words = question.strip().split()
+    words       = question.strip().split()
     is_short    = len(words) <= 4
     is_followup = words[0].lower().rstrip("?,.") in FOLLOWUP_STARTERS if words else False
 
@@ -442,13 +514,11 @@ def contextualize_query(question: str, history: list[dict]) -> str:
         return question
 
     last_user = next(
-        (m["content"] for m in reversed(history) if m["role"] == "user"),
-        None,
+        (m["content"] for m in reversed(history) if m["role"] == "user"), None
     )
     if not last_user or last_user.strip() == question.strip():
         return question
 
-    # Combine: last context + current question gives the retriever a full picture
     return f"{last_user.strip()} {question.strip()}"
 
 
@@ -460,27 +530,15 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], f
         values=sparse_emb.values.tolist(),
     )
 
-    # Two independent searches
-    dense_results  = qdrant.query_points(
-        collection_name=COLLECTION_NAME,
-        query=dense_vec,
-        using="dense",
-        limit=20,
-    )
-    sparse_results = qdrant.query_points(
-        collection_name=COLLECTION_NAME,
-        query=sparse_vec,
-        using="sparse",
-        limit=20,
-    )
+    dense_results  = qdrant.query_points(collection_name=COLLECTION_NAME, query=dense_vec,  using="dense",  limit=20)
+    sparse_results = qdrant.query_points(collection_name=COLLECTION_NAME, query=sparse_vec, using="sparse", limit=20)
 
     candidates = _rrf(dense_results, sparse_results)[:FETCH_K]
     if not candidates:
         return "", [], 0.0
 
-    # Cross-encoder reranking (unchanged)
     pairs  = [[question, hit.payload["text"]] for hit in candidates]
-    scores = cross_encoder.predict(pairs)
+    scores = _rerank_scores(pairs)
     ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)
     top    = ranked[:k]
 
@@ -489,16 +547,17 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], f
         context_parts.append(
             f"Burimi [{i}] ({hit.payload.get('title', '?')}): {hit.payload['text']}"
         )
-        sources.append({
-            "title": hit.payload.get("title", "E panjohur"),
-            "type":  "local",
-        })
+        sources.append(hit.payload.get("title", "E panjohur"))
 
     best_raw_score = float(ranked[0][0])
     confidence     = 1.0 / (1.0 + math.exp(-best_raw_score))
     return "\n\n".join(context_parts), sources, confidence
 
-# --- OpenRouter API Call (non-streaming, used for summarization) ---
+
+# ---------------------------------------------------------------------------
+# LLM helpers
+# ---------------------------------------------------------------------------
+
 def call_llm(messages: list[dict], model: str) -> str:
     res = requests.post(
         url="https://openrouter.ai/api/v1/chat/completions",
@@ -514,21 +573,7 @@ def call_llm(messages: list[dict], model: str) -> str:
     raise HTTPException(status_code=502, detail=f"LLM error: {data}")
 
 
-# --- NEW: Async streaming generator ---
-# This is an "async generator" — a function that yields values one at a time
-# asynchronously. The `async for` loop on the httpx response reads each line
-# from OpenRouter as it arrives, without blocking.
 async def stream_llm_tokens(messages: list[dict], model: str):
-    """
-    Calls OpenRouter with stream=True and yields each text token as it arrives.
-
-    OpenRouter sends back lines that look like:
-        data: {"choices": [{"delta": {"content": "Raporti"}}]}
-        data: {"choices": [{"delta": {"content": " NPL"}}]}
-        data: [DONE]
-
-    We parse each line, extract the token text, and yield it.
-    """
     async with httpx.AsyncClient(timeout=60) as client:
         async with client.stream(
             "POST",
@@ -537,258 +582,221 @@ async def stream_llm_tokens(messages: list[dict], model: str):
                 "Authorization": f"Bearer {OPENROUTER_API_KEY}",
                 "Content-Type": "application/json",
             },
-            json={
-                "model": model,
-                "messages": messages,
-                "temperature": 0.3,
-                "stream": True,          # ← this tells OpenRouter to stream
-            },
+            json={"model": model, "messages": messages, "temperature": 0.3, "stream": True},
         ) as response:
             async for line in response.aiter_lines():
-                # Each line from OpenRouter looks like: "data: {...}" or "data: [DONE]"
                 if not line.startswith("data: "):
                     continue
-
-                payload = line[6:]       # strip the "data: " prefix
-
-                if payload == "[DONE]":  # OpenRouter signals the stream is finished
+                payload = line[6:]
+                if payload == "[DONE]":
                     break
-
                 try:
                     chunk = json.loads(payload)
-                    # The token text lives at choices[0].delta.content
-                    # It can be None or missing when the stream is just starting
                     token = chunk["choices"][0]["delta"].get("content", "")
                     if token:
                         yield token
                 except (json.JSONDecodeError, KeyError, IndexError):
-                    # Malformed chunk — skip it
                     continue
 
 
-# --- NEW: Streaming endpoint ---
-@app.post("/chat/stream")
-@limiter.limit(RATE_LIMIT)
-async def chat_stream(request: Request, req: ChatRequest):
-    # `request` kërkohet nga slowapi për të lexuar IP-në e klientit.
-    # Nuk e përdorim drejtpërdrejt — slowapi e lexon vetë nga dekoratori.
-    """
-    Streams the LLM response token by token using Server-Sent Events (SSE).
-
-    The frontend connects with fetch() and reads the body as a ReadableStream.
-    We send three types of SSE messages:
-        {"type": "sources", "sources": [...]}   — sent first, before any tokens
-        {"type": "token",   "token": "word"}    — one per token
-        {"type": "done"}                         — signals the stream is finished
-    """
-    # Resolve model: "auto" triggers router, None falls back to env default
-    if req.model == "auto":
-        model = route_model(req.question)
-    else:
-        model = req.model or CHOSEN_MODEL
-
-    # --- Cache check: serve cached answers instantly ---
-    key    = cache_key(req.question)
-    cached = _cache.get(key)
-
-    if cached and (time.time() - cached["ts"]) < CACHE_TTL:
-        async def replay_cached():
-            # Even for cached answers we emit the same SSE format,
-            # so the frontend code doesn't need a special path.
-            yield f"data: {json.dumps({'type': 'sources', 'sources': cached['sources']})}\n\n"
-            yield f"data: {json.dumps({'type': 'cache'})}\n\n"
-            # Replay the cached answer word by word so it still feels like streaming
-            for word in cached["answer"].split(" "):
-                yield f"data: {json.dumps({'type': 'token', 'token': word + ' '})}\n\n"
-                await asyncio.sleep(0.01)   # tiny delay to make the replay visible
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-
-        return StreamingResponse(replay_cached(), media_type="text/event-stream")
-
-    # --- Contextualize follow-up queries before retrieval ---
-    # Must fetch history first so contextualize_query can use it.
-    history = get_history(req.session_id, limit=6)
-    retrieval_query = contextualize_query(req.question, history)
-
-    # --- RAG: retrieve context, or skip to web for time-sensitive queries ---
-    # retrieve_context() is synchronous (calls the embedding model).
-    # asyncio.to_thread() runs it in a background thread so it doesn't block
-    # the async event loop while the embedding model is computing.
-    if _is_time_sensitive(retrieval_query):
-        # Static knowledge base can't answer time-sensitive questions — go straight to web
-        context, sources, confidence = "", [], 0.0
-    else:
-        context, sources, confidence = await asyncio.to_thread(retrieve_context, retrieval_query)
-
-    # If RAG confidence is too low (or query was time-sensitive), fall back to web search
-    if confidence < CONFIDENCE_THRESHOLD:
-        web_context, web_sources = await asyncio.to_thread(web_search, req.question)
-
-        if not web_context:
-            # Web search also came up empty — emit the static fallback message
-            async def low_confidence_stream():
-                msg = json.dumps({"type": "low_confidence",
-                                  "confidence": round(confidence, 3),
-                                  "message": FALLBACK_MSG})
-                yield f"data: {msg}\n\n"
-                yield f'data: {json.dumps({"type": "done"})}\n\n'
-            return StreamingResponse(low_confidence_stream(), media_type="text/event-stream")
-
-        # Use live web results as context instead
-        context = web_context
-        sources = web_sources
-
-    # history already fetched above for query contextualization
-    summary = get_summary(req.session_id)
-
-    # Tell the LLM whether context is from the local KB or live web, and ask for citations
-    has_web_sources = any(s.get("type") == "web" for s in sources)
+def _build_system_prompt(context: str, summary: str, is_web: bool) -> str:
     source_note = (
         "The context below comes from live web search results. "
         "At the end of your answer, briefly mention the source(s) you used."
-        if has_web_sources else
+        if is_web else
         "The context below comes from our local knowledge base about Tirana."
     )
-
-    system_prompt = f"""You are a friendly and knowledgeable local guide for Tirana, Albania.
-Detect the language of the user's question and always reply in that same language.
-{source_note}
-Base your answer ONLY on the context below. If the information is not found, say so briefly and suggest the user rephrase.
-CONTEXT:
-{context}
-"""
+    prompt = (
+        "You are a friendly and knowledgeable local guide for Tirana, Albania.\n"
+        "Always reply in English — the response will be translated for the user automatically.\n"
+        f"{source_note}\n"
+        "Base your answer ONLY on the context below. "
+        "If the information is not found, say so briefly and suggest the user rephrase.\n"
+        f"CONTEXT:\n{context}"
+    )
     if summary:
-        system_prompt += f"\nSUMMARY OF PREVIOUS CONVERSATION:\n{summary}"
+        prompt += f"\n\nSUMMARY OF PREVIOUS CONVERSATION:\n{summary}"
+    return prompt
 
-    messages_to_send = [{"role": "system", "content": system_prompt}]
-    messages_to_send.extend(history)
-    messages_to_send.append({"role": "user", "content": req.question})
 
-    # --- The actual streaming generator ---
+# ---------------------------------------------------------------------------
+# Cache
+# ---------------------------------------------------------------------------
+
+_cache: dict[str, dict] = {}
+CACHE_TTL = 3600
+
+def cache_key(question: str) -> str:
+    return hashlib.md5(question.strip().lower().encode()).hexdigest()
+
+
+# ---------------------------------------------------------------------------
+# /chat/stream endpoint
+# ---------------------------------------------------------------------------
+
+@app.post("/chat/stream")
+@limiter.limit(RATE_LIMIT)
+async def chat_stream(request: Request, req: ChatRequest):
+    """Streams the LLM response token by token using Server-Sent Events (SSE)."""
+
+    model = route_model(req.question) if req.model == "auto" else (req.model or CHOSEN_MODEL)
+
+    # Cache check
+    key    = cache_key(req.question)
+    cached = _cache.get(key)
+    if cached and (time.time() - cached["ts"]) < CACHE_TTL:
+        async def replay_cached():
+            yield f"data: {json.dumps({'type': 'sources', 'sources': cached['sources']})}\n\n"
+            yield f"data: {json.dumps({'type': 'cache'})}\n\n"
+            for word in cached["answer"].split(" "):
+                yield f"data: {json.dumps({'type': 'token', 'token': word + ' '})}\n\n"
+                await asyncio.sleep(0.01)
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+        return StreamingResponse(replay_cached(), media_type="text/event-stream")
+
+    # Fetch history + contextualize
+    history         = get_history(req.session_id, limit=6)
+    retrieval_query = contextualize_query(req.question, history)
+
+    # Translation: question → English
+    english_question, user_language = await translate_question_to_english(retrieval_query)
+
+    # Retrieval: RAG or web fallback
+    is_web = False
+    if _is_time_sensitive(english_question):
+        context, sources, confidence = "", [], 0.0
+    else:
+        context, sources, confidence = await asyncio.to_thread(retrieve_context, english_question)
+
+    if confidence < CONFIDENCE_THRESHOLD:
+        web_context, web_sources = await asyncio.to_thread(web_search, english_question)
+        if not web_context:
+            async def low_confidence_stream():
+                yield f"data: {json.dumps({'type': 'low_confidence', 'confidence': round(confidence, 3), 'message': FALLBACK_MSG})}\n\n"
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            return StreamingResponse(low_confidence_stream(), media_type="text/event-stream")
+        context, sources, is_web = web_context, web_sources, True
+
+    summary        = get_summary(req.session_id)
+    system_prompt  = _build_system_prompt(context, summary, is_web)
+    messages_to_send = (
+        [{"role": "system", "content": system_prompt}]
+        + history
+        + [{"role": "user", "content": english_question}]
+    )
+
     async def generate():
-        # 1. Send sources first so the frontend can show them immediately
         yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-        # 2. Stream tokens as they arrive from OpenRouter
         full_answer_parts = []
         async for token in stream_llm_tokens(messages_to_send, model):
             full_answer_parts.append(token)
-            # Each SSE message must end with \n\n
             yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
 
-        # 3. Save to DB once the stream is complete
-        full_answer = "".join(full_answer_parts)
+        english_answer = "".join(full_answer_parts)
+        if user_language and user_language != "en":
+            final_answer = await translate_answer_to_language(english_answer, user_language)
+            yield f"data: {json.dumps({'type': 'translation', 'text': final_answer})}\n\n"
+        else:
+            final_answer = english_answer
+
         save_message(req.session_id, "user",      req.question)
-        save_message(req.session_id, "assistant", full_answer)
+        save_message(req.session_id, "assistant", final_answer)
+        _cache[key] = {"answer": final_answer, "sources": sources, "ts": time.time()}
 
-        # 4. Cache the completed answer
-        _cache[key] = {"answer": full_answer, "sources": sources, "ts": time.time()}
-
-        # 5. Trigger summarization if needed (every 10 messages)
         history_len = len(get_history(req.session_id, limit=100))
         if history_len % 10 == 0 and history_len > 0:
-            # Run the blocking summarize call in a thread so it doesn't stall the response
-            asyncio.create_task(
-                asyncio.to_thread(_summarize_session, req.session_id, model)
-            )
+            asyncio.create_task(asyncio.to_thread(_summarize_session, req.session_id, model))
 
-        # 6. Signal that the stream is finished
         yield f"data: {json.dumps({'type': 'done'})}\n\n"
 
     return StreamingResponse(
         generate(),
         media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",        # prevent any proxy from buffering
-            "X-Accel-Buffering": "no",          # nginx-specific: disable buffering
-        },
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
     )
 
 
-# --- Endpoint kryesor (kept for backward compatibility) ---
+# ---------------------------------------------------------------------------
+# /chat endpoint (non-streaming, kept for backward compatibility)
+# ---------------------------------------------------------------------------
+
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit(RATE_LIMIT)
 def chat(request: Request, req: ChatRequest):
-    # `request` kërkohet nga slowapi — shih shënimin tek /chat/stream.
-    if req.model == "auto":
-        model = route_model(req.question)
-    else:
-        model = req.model or CHOSEN_MODEL
+    model = route_model(req.question) if req.model == "auto" else (req.model or CHOSEN_MODEL)
 
     key    = cache_key(req.question)
     cached = _cache.get(key)
-
     if cached and (time.time() - cached["ts"]) < CACHE_TTL:
-        return ChatResponse(
-            answer=cached["answer"],
-            sources=cached["sources"],
-            from_cache=True
-        )
+        return ChatResponse(answer=cached["answer"], sources=cached["sources"], from_cache=True)
 
-    history = get_history(req.session_id, limit=6)
+    history         = get_history(req.session_id, limit=6)
     retrieval_query = contextualize_query(req.question, history)
 
-    if _is_time_sensitive(retrieval_query):
-        context, sources, confidence = "", [], 0.0
-    else:
-        context, sources, confidence = retrieve_context(retrieval_query)
-
-    if confidence < CONFIDENCE_THRESHOLD:
-        web_context, web_sources = web_search(req.question)
-        if not web_context:
-            return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
-        context = web_context
-        sources = web_sources
-
-    # history already fetched above for contextualization
-    summary = get_summary(req.session_id)
-
-    has_web_sources = any(s.get("type") == "web" for s in sources)
-    source_note = (
-        "The context below comes from live web search results. "
-        "At the end of your answer, briefly mention the source(s) you used."
-        if has_web_sources else
-        "The context below comes from our local knowledge base about Tirana."
+    # Translation (sync wrapper for async function)
+    english_question, user_language = asyncio.get_event_loop().run_until_complete(
+        translate_question_to_english(retrieval_query)
     )
 
-    system_prompt = f"""You are a friendly and knowledgeable local guide for Tirana, Albania.
-Detect the language of the user's question and always reply in that same language.
-{source_note}
-Base your answer ONLY on the context below. If the information is not found, say so briefly and suggest the user rephrase.
-CONTEXT:
-{context}
-"""
-    if summary:
-        system_prompt += f"\nPËRMBLEDHJA E BISEDËS SË MËPARSHME:\n{summary}"
+    is_web = False
+    if _is_time_sensitive(english_question):
+        context, sources, confidence = "", [], 0.0
+    else:
+        context, sources, confidence = retrieve_context(english_question)
 
-    messages = [{"role": "system", "content": system_prompt}]
-    messages.extend(history)
-    messages.append({"role": "user", "content": req.question})
+    if confidence < CONFIDENCE_THRESHOLD:
+        web_context, web_sources = web_search(english_question)
+        if not web_context:
+            return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
+        context, sources, is_web = web_context, web_sources, True
 
-    answer = call_llm(messages, model)
+    summary       = get_summary(req.session_id)
+    system_prompt = _build_system_prompt(context, summary, is_web)
+    messages      = (
+        [{"role": "system", "content": system_prompt}]
+        + history
+        + [{"role": "user", "content": english_question}]
+    )
+
+    english_answer = call_llm(messages, model)
+
+    if user_language and user_language != "en":
+        final_answer = asyncio.get_event_loop().run_until_complete(
+            translate_answer_to_language(english_answer, user_language)
+        )
+    else:
+        final_answer = english_answer
 
     save_message(req.session_id, "user",      req.question)
-    save_message(req.session_id, "assistant", answer)
+    save_message(req.session_id, "assistant", final_answer)
 
     history_len = len(get_history(req.session_id, limit=100))
     if history_len % 10 == 0 and history_len > 0:
         _summarize_session(req.session_id, model)
 
-    _cache[key] = {"answer": answer, "sources": sources, "ts": time.time()}
+    _cache[key] = {"answer": final_answer, "sources": sources, "ts": time.time()}
+    return ChatResponse(answer=final_answer, sources=sources, from_cache=False)
 
-    return ChatResponse(answer=answer, sources=sources, from_cache=False)
 
+# ---------------------------------------------------------------------------
+# Session summarization
+# ---------------------------------------------------------------------------
 
 def _summarize_session(session_id: str, model: str):
-    history = get_history(session_id, limit=20)
+    history      = get_history(session_id, limit=20)
     conversation = "\n".join([f"{m['role'].upper()}: {m['content']}" for m in history])
-    summary = call_llm([{
+    summary      = call_llm([{
         "role": "user",
         "content": f"Përmblidhe bisedën e mëposhtme në 3-5 fjali:\n\n{conversation}"
     }], model)
     save_summary(session_id, summary)
 
-# --- Health check ---
+
+# ---------------------------------------------------------------------------
+# Endpoints
+# ---------------------------------------------------------------------------
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model": CHOSEN_MODEL}
@@ -810,60 +818,6 @@ def rename_session_endpoint(session_id: str, req: RenameRequest):
     rename_session(session_id, req.display_name)
     return {"session_id": session_id, "display_name": req.display_name}
 
-
-# --- Admin endpoints ---
-@app.post("/admin/ingest")
-async def trigger_ingestion(background_tasks: BackgroundTasks):
-    """
-    Aktivizon manualisht ingestion-in ne background.
-    E dobishme menjëherë pas ndryshimit te nje faqe Wiki pa pritur ciklin 24h.
-    """
-    background_tasks.add_task(run_ingestion_job)
-    return {"status": "Ingestion filloi ne background — kontrolloni logjet e serverit."}
-
-
-# --- Feedback endpoints ---
-@app.post("/feedback", status_code=201)
-@limiter.limit("60/minute")   # më lirshëm se /chat — klikimi i butonit është i shpejtë
-def submit_feedback(request: Request, req: FeedbackRequest):
-    """
-    Ruan vlerësimin e përdoruesit për një përgjigje.
-
-    Klienti dërgon: session_id, question (e njëjtë me atë të dërguar tek /chat),
-    dhe rating (+1 ose -1).
-
-    Nuk kthejmë asgjë veç statusit 201 Created — frontend-i e di
-    tashmë se cila buton u klikua.
-    """
-    save_feedback(req.session_id, req.question, req.rating)
-
-    # Thumbs-down: evict from cache so the next request gets a fresh answer.
-    if req.rating == -1:
-        _cache.pop(cache_key(req.question), None)
-
-    return {"saved": True}
-
-
-@app.get("/feedback/stats")
-def feedback_stats():
-    """
-    Kthen statistikat agregate: thumbs up/down totale dhe pyetjet
-    me më shumë vlerësime negative.
-
-    Ky endpoint është i dobishëm për të kuptuar ku sistemi dështon —
-    p.sh. nëse "NPL ratio" merr vazhdimisht thumbs-down, tregon se
-    dokumentet Wiki mbi atë temë janë të mangëta ose jo të indeksuara.
-    """
-    return get_feedback_stats()
-
-
-# Cache në memorie (pastrohet kur riniset serveri)
-_cache: dict[str, dict] = {}
-CACHE_TTL = 3600  # sekonda
-
-def cache_key(question: str) -> str:
-    return hashlib.md5(question.strip().lower().encode()).hexdigest()
-
 @app.delete("/sessions/{session_id}")
 def delete_session(session_id: str):
     import sqlite3 as _sq
@@ -872,3 +826,20 @@ def delete_session(session_id: str):
     conn.execute("DELETE FROM summaries WHERE session_id=?", (session_id,))
     conn.commit(); conn.close()
     return {"deleted": session_id}
+
+@app.post("/admin/ingest")
+async def trigger_ingestion(background_tasks: BackgroundTasks):
+    background_tasks.add_task(run_ingestion_job)
+    return {"status": "Ingestion filloi ne background — kontrolloni logjet e serverit."}
+
+@app.post("/feedback", status_code=201)
+@limiter.limit("60/minute")
+def submit_feedback(request: Request, req: FeedbackRequest):
+    save_feedback(req.session_id, req.question, req.rating)
+    if req.rating == -1:
+        _cache.pop(cache_key(req.question), None)
+    return {"saved": True}
+
+@app.get("/feedback/stats")
+def feedback_stats():
+    return get_feedback_stats()

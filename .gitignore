@@ -47,3 +47,10 @@ wiki_data/
 wikijs-backup.dump
 validate.py
 validation_reports
+deploy.log
+deploy_webhook.py
+
+# ── Old Files ──
+chat.py
+vector_store.py
+wiki_ingest.py
