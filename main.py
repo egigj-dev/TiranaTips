@@ -722,12 +722,12 @@ async def chat_stream(request: Request, req: ChatRequest):
                     save_message(req.session_id, "assistant",
                                 partial + "\n\n_[Response interrupted]_")
                 # Intentionally NOT caching a partial answer.
-    
-        return StreamingResponse(
-            generate(),
-            media_type="text/event-stream",
-            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-        )
+
+    return StreamingResponse(
+        generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 # ---------------------------------------------------------------------------
