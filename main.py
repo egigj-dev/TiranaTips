@@ -641,10 +641,16 @@ async def chat_stream(request: Request, req: ChatRequest):
 
     model = route_model(req.question) if req.model == "auto" else (req.model or CHOSEN_MODEL)
 
-    # Cache check
+    # Cache check — skip if the cached answer came from local RAG only (no web sources),
+    # because it may have been stored before the confidence threshold was tuned.
+    # Web-sourced answers are always worth replaying; local-only ones are re-evaluated.
     key    = cache_key(req.question)
     cached = _cache.get(key)
-    if cached and (time.time() - cached["ts"]) < CACHE_TTL:
+    cached_is_web = cached and any(
+        isinstance(s, dict) and s.get("type") == "web"
+        for s in cached.get("sources", [])
+    )
+    if cached and (time.time() - cached["ts"]) < CACHE_TTL and cached_is_web:
         async def replay_cached():
             yield f"data: {json.dumps({'type': 'sources', 'sources': cached['sources']})}\n\n"
             yield f"data: {json.dumps({'type': 'cache'})}\n\n"
@@ -653,6 +659,9 @@ async def chat_stream(request: Request, req: ChatRequest):
                 await asyncio.sleep(0.01)
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return StreamingResponse(replay_cached(), media_type="text/event-stream")
+    # If cache entry exists but is local-only, drop it so we re-run the full pipeline
+    if cached and not cached_is_web:
+        _cache.pop(key, None)
 
     # Fetch history + contextualize
     history         = get_history(req.session_id, limit=6)
