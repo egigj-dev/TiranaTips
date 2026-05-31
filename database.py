@@ -208,9 +208,8 @@ def get_feedback_stats() -> dict:
 
 def delete_last_exchange(session_id: str) -> str | None:
     """
-    Delete the most recent assistant message AND the user message that
-    prompted it. Returns the user's question so the caller can re-submit it,
-    or None if there's nothing to retry.
+    Fshin përgjigjen e fundit të asistentit dhe pyetjen që e shkaktoi atë. 
+    Kthen pyetjen që të mund të dërgohet përsëri, ose None nëse nuk ka asgjë për të riprovuar.
     """
     conn = sqlite3.connect(DB_PATH)
     last_assist = conn.execute(
