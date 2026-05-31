@@ -297,8 +297,13 @@
     flex-shrink: 0; transition: all .2s; font-size: 16px;
     box-shadow: 0 2px 8px rgba(201,107,63,.35);
   }
+
   #send-btn:hover:not(:disabled) { background: var(--terra-dim); transform: scale(1.05); box-shadow: 0 4px 14px rgba(201,107,63,.4); }
   #send-btn:disabled { background: var(--border); cursor: not-allowed; box-shadow: none; }
+  #send-btn.stop-mode { background: #c03030; box-shadow: 0 2px 8px rgba(192,48,48,.35); }
+  #send-btn.stop-mode:hover:not(:disabled) { background: #a02525; box-shadow: 0 4px 14px rgba(192,48,48,.4); }
+  .retry-btn { font-size: 13px !important; }
+  .retry-btn:hover:not(:disabled) { border-color: var(--sky); background: #e8f4fd; color: var(--sky); }
 
   .hint { margin-top: 8px; font-size: 10px; color: var(--muted); text-align: center; letter-spacing: .5px; display: flex; align-items: center; justify-content: center; gap: 12px; font-weight: 300; }
   .hint-item { display: flex; align-items: center; gap: 4px; }
@@ -562,6 +567,8 @@
   marked.use({ breaks: true });
 
   let panelOpen       = false;
+  let currentAbortController = null;
+  let lastUserQuestion = null;
   let activeTab       = 'history';
   let msgCount        = 0;
   let activeModel     = 'auto';
@@ -1016,6 +1023,7 @@
         <span class="feedback-label">Helpful?</span>
         <button class="fb-btn" id="fb-up"   title="Yes, helpful!">👍</button>
         <button class="fb-btn" id="fb-down" title="Could be better">👎</button>
+        <button class="fb-btn retry-btn" onclick="retryLast()" title="Regenerate this answer">↻</button>
         <span class="fb-thanks" id="fb-thanks">Thanks! ✨</span>
       </div>`;
 
@@ -1040,7 +1048,6 @@
     upBtn.addEventListener('click',   () => sendFeedback(1));
     downBtn.addEventListener('click', () => sendFeedback(-1));
   }
-
   function createStreamingBubble(modelName) {
     document.getElementById('welcome-screen')?.remove();
     const win      = document.getElementById('chat-window');
@@ -1068,16 +1075,17 @@
   }
 
   // ── Send message ──────────────────────────────────────────────────────────
-  async function sendMessage() {
+  async function sendMessage(questionOverride = null) {
     const input = document.getElementById('user-input');
     const btn   = document.getElementById('send-btn');
-    const q     = input.value.trim();
+    const q     = questionOverride !== null ? questionOverride : input.value.trim();
     if (!q) return;
-    input.value = ''; input.style.height = 'auto';
-    btn.disabled = true;
+    if (questionOverride === null) { input.value = ''; input.style.height = 'auto'; }
 
-    // If context is injected, prepend it to the question sent to the API.
-    // The displayed message remains the user's original question.
+    lastUserQuestion = q;
+    setSendBtnMode('stop');
+    currentAbortController = new AbortController();
+
     const apiQuestion = injectedContext
       ? `[Context from a previous conversation:\n${injectedContext}]\n\n${q}`
       : q;
@@ -1086,11 +1094,14 @@
     const { contentEl, sourcesEl, metaEl, feedbackEl } = createStreamingBubble(activeModelName);
     const win = document.getElementById('chat-window');
 
+    let streamText = '';
+
     try {
       const res = await fetch(`${API}/chat/stream`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ session_id: getSessionId(), question: apiQuestion, model: activeModel })
+        body:    JSON.stringify({ session_id: getSessionId(), question: apiQuestion, model: activeModel }),
+        signal:  currentAbortController.signal,
       });
 
       if (!res.ok) {
@@ -1102,8 +1113,7 @@
 
       const reader  = res.body.getReader();
       const decoder = new TextDecoder();
-      let buffer     = '';
-      let streamText = '';
+      let buffer    = '';
 
       while (true) {
         const { done, value } = await reader.read();
@@ -1121,17 +1131,13 @@
             streamText += msg.token;
             contentEl.textContent += msg.token;
             win.scrollTop = win.scrollHeight;
-
           } else if (msg.type === 'sources') {
-            if (msg.sources && msg.sources.length) {
+            if (msg.sources?.length) {
               sourcesEl.innerHTML = msg.sources
-                .map(s => `<span class="source-tag">${escapeHtml(s)}</span>`)
-                .join('');
+                .map(s => `<span class="source-tag">${escapeHtml(s)}</span>`).join('');
             }
-
           } else if (msg.type === 'cache') {
             metaEl.insertAdjacentHTML('beforeend', '<span class="cache-tag">⚡ cached</span>');
-
           } else if (msg.type === 'low_confidence') {
             contentEl.textContent = msg.message || 'I don\'t have enough information to answer that.';
             const note = document.createElement('span');
@@ -1139,25 +1145,80 @@
             note.textContent = 'Confidence: ' + ((msg.confidence || 0) * 100).toFixed(1) + '%';
             contentEl.after(note);
             contentEl.closest('.bubble').classList.add('warning-bubble');
-
           } else if (msg.type === 'done') {
             if (streamText) contentEl.innerHTML = marked.parse(streamText);
             setStatus(true);
             msgCount += 2; updateBadge();
             if (panelOpen) loadPanel();
             showFeedbackButtons(feedbackEl, q);
-            // Clear injected context after it's been used once
             if (injectedContext) clearContext();
           }
         }
       }
-    } catch {
-      contentEl.textContent = 'Could not connect to the server.';
-      contentEl.closest('.bubble').classList.add('error-bubble');
-      setStatus(false);
+    } catch (err) {
+      if (err.name === 'AbortError') {
+        // User hit stop — render what we got and tag it
+        if (streamText.trim()) {
+          contentEl.innerHTML = marked.parse(streamText + '\n\n_[Interrupted]_');
+          showFeedbackButtons(feedbackEl, q);   // still allow retry
+          msgCount += 2; updateBadge();
+        } else {
+          contentEl.closest('.message')?.remove();   // nothing to show
+        }
+      } else {
+        contentEl.textContent = 'Could not connect to the server.';
+        contentEl.closest('.bubble').classList.add('error-bubble');
+        setStatus(false);
+      }
     } finally {
-      btn.disabled = false;
+      currentAbortController = null;
+      setSendBtnMode('send');
       input.focus();
+    }
+  }
+
+  function setSendBtnMode(mode) {
+    const btn = document.getElementById('send-btn');
+    if (mode === 'stop') {
+      btn.innerHTML = '■';
+      btn.title = 'Stop generating';
+      btn.classList.add('stop-mode');
+      btn.onclick = stopStreaming;
+      btn.disabled = false;
+    } else {
+      btn.innerHTML = '➤';
+      btn.title = 'Send';
+      btn.classList.remove('stop-mode');
+      btn.onclick = () => sendMessage();
+    }
+  }
+
+  function stopStreaming() {
+    if (currentAbortController) currentAbortController.abort();
+  }
+
+  async function retryLast() {
+    try {
+      const res = await fetch(`${API}/sessions/${getSessionId()}/retry_last`, { method: 'POST' });
+      const data = await res.json();
+      const question = data.last_question || lastUserQuestion;
+      if (!question) return;
+
+      // Remove the last AI bubble, then the last user bubble (in that order)
+      const msgs = document.querySelectorAll('#chat-window .message');
+      for (let i = msgs.length - 1; i >= 0; i--) {
+        if (msgs[i].classList.contains('ai')) { msgs[i].remove(); break; }
+      }
+      const msgs2 = document.querySelectorAll('#chat-window .message');
+      for (let i = msgs2.length - 1; i >= 0; i--) {
+        if (msgs2[i].classList.contains('user')) { msgs2[i].remove(); break; }
+      }
+      msgCount = Math.max(0, msgCount - 2);
+      updateBadge();
+
+      sendMessage(question);
+    } catch (e) {
+      console.error('Retry failed', e);
     }
   }
 

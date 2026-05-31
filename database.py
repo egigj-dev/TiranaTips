@@ -206,6 +206,43 @@ def get_feedback_stats() -> dict:
         ],
     }
 
+def delete_last_exchange(session_id: str) -> str | None:
+    """
+    Delete the most recent assistant message AND the user message that
+    prompted it. Returns the user's question so the caller can re-submit it,
+    or None if there's nothing to retry.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    last_assist = conn.execute(
+        "SELECT id FROM messages WHERE session_id=? AND role='assistant' "
+        "ORDER BY id DESC LIMIT 1",
+        (session_id,)
+    ).fetchone()
+    if last_assist is None:
+        conn.close()
+        return None
+    assist_id = last_assist[0]
+
+    last_user = conn.execute(
+        "SELECT id, content FROM messages WHERE session_id=? AND role='user' "
+        "AND id < ? ORDER BY id DESC LIMIT 1",
+        (session_id, assist_id)
+    ).fetchone()
+
+    ids_to_delete = [assist_id]
+    user_content = None
+    if last_user:
+        user_id, user_content = last_user
+        ids_to_delete.append(user_id)
+
+    conn.execute(
+        f"DELETE FROM messages WHERE id IN ({','.join('?' * len(ids_to_delete))})",
+        ids_to_delete
+    )
+    conn.commit()
+    conn.close()
+    return user_content
+
 
 # Auto-inicializim kur importohet moduli
 init_db()

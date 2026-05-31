@@ -27,8 +27,8 @@ from qdrant_client.models import (
 )
 from database import (save_message, get_history, save_summary, get_summary,
                        get_all_sessions, get_all_sessions_with_names,
-                       rename_session, get_session_name,
-                       save_feedback, get_feedback_stats)
+                       rename_session, get_session_name, save_feedback, 
+                       get_feedback_stats, delete_last_exchange)
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -686,35 +686,48 @@ async def chat_stream(request: Request, req: ChatRequest):
     )
 
     async def generate():
-        yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
-
         full_answer_parts = []
-        async for token in stream_llm_tokens(messages_to_send, model):
-            full_answer_parts.append(token)
-            yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+        completed = False
+        try:
+            yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-        english_answer = "".join(full_answer_parts)
-        if user_language and user_language != "en":
-            final_answer = await translate_answer_to_language(english_answer, user_language)
-            yield f"data: {json.dumps({'type': 'translation', 'text': final_answer})}\n\n"
-        else:
-            final_answer = english_answer
+            async for token in stream_llm_tokens(messages_to_send, model):
+                full_answer_parts.append(token)
+                yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
 
-        save_message(req.session_id, "user",      req.question)
-        save_message(req.session_id, "assistant", final_answer)
-        _cache[key] = {"answer": final_answer, "sources": sources, "ts": time.time()}
+            english_answer = "".join(full_answer_parts)
+            if user_language and user_language != "en":
+                final_answer = await translate_answer_to_language(english_answer, user_language)
+                yield f"data: {json.dumps({'type': 'translation', 'text': final_answer})}\n\n"
+            else:
+                final_answer = english_answer
 
-        history_len = len(get_history(req.session_id, limit=100))
-        if history_len % 10 == 0 and history_len > 0:
-            asyncio.create_task(asyncio.to_thread(_summarize_session, req.session_id, model))
+            save_message(req.session_id, "user",      req.question)
+            save_message(req.session_id, "assistant", final_answer)
+            _cache[key] = {"answer": final_answer, "sources": sources, "ts": time.time()}
 
-        yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            history_len = len(get_history(req.session_id, limit=100))
+            if history_len % 10 == 0 and history_len > 0:
+                asyncio.create_task(asyncio.to_thread(_summarize_session, req.session_id, model))
 
-    return StreamingResponse(
-        generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
+            yield f"data: {json.dumps({'type': 'done'})}\n\n"
+            completed = True
+        finally:
+            # Runs both on success (no-op) and on client disconnect (CancelledError).
+            # Persist whatever we managed to generate so the chat reflects reality.
+            if not completed:
+                partial = "".join(full_answer_parts).strip()
+                if partial:
+                    save_message(req.session_id, "user", req.question)
+                    save_message(req.session_id, "assistant",
+                                partial + "\n\n_[Response interrupted]_")
+                # Intentionally NOT caching a partial answer.
+    
+        return StreamingResponse(
+            generate(),
+            media_type="text/event-stream",
+            headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -826,6 +839,20 @@ def delete_session(session_id: str):
     conn.execute("DELETE FROM summaries WHERE session_id=?", (session_id,))
     conn.commit(); conn.close()
     return {"deleted": session_id}
+
+@app.post("/sessions/{session_id}/retry_last")
+@limiter.limit(RATE_LIMIT)
+def retry_last(request: Request, session_id: str):
+    """
+    Remove the last [user, assistant] exchange so the next /chat/stream call
+    regenerates a fresh answer. Returns the question the frontend should re-send.
+    Also invalidates the cache for that question, otherwise retry would just
+    replay the previous (presumably unwanted) answer.
+    """
+    last_question = delete_last_exchange(session_id)
+    if last_question:
+        _cache.pop(cache_key(last_question), None)
+    return {"last_question": last_question}
 
 @app.post("/admin/ingest")
 async def trigger_ingestion(background_tasks: BackgroundTasks):
