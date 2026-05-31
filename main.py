@@ -43,7 +43,7 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
 QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL")
-TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback disabled if unset
+TAVILY_API_KEY     = "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"
 
 COLLECTION_NAME  = "wiki_banking"
 RERANK_MODEL     = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
@@ -51,7 +51,7 @@ FETCH_K          = 10   # kandidatë nga Qdrant para reranking-ut
 FINAL_K          = 3    # rezultate finale që i dërgohen LLM-it
 
 # --- Confidence threshold ---
-CONFIDENCE_THRESHOLD = 0.15
+CONFIDENCE_THRESHOLD = 0.45
 
 INGEST_INTERVAL_HOURS = 24
 
@@ -93,12 +93,13 @@ def _is_time_sensitive(question: str) -> bool:
     return any(kw in q_lower for kw in TIME_SENSITIVE_KEYWORDS)
 
 
-def web_search(question: str) -> tuple[str, list[str]]:
+def web_search(question: str) -> tuple[str, list[dict]]:
     """
     Search the web via Tavily and return (context_text, sources_list).
 
-    sources_list is a flat list of strings (title — url) to match the format
-    expected by the rest of the pipeline and the frontend source tags.
+    sources_list is a list of dicts: [{"title": ..., "url": ..., "type": "web"}]
+    The "type": "web" flag is used by the frontend to render clickable links
+    with a globe icon, distinct from local knowledge-base sources.
 
     Returns ("", []) if TAVILY_API_KEY is unset or the request fails.
     """
@@ -131,15 +132,14 @@ def web_search(question: str) -> tuple[str, list[str]]:
         return "", []
 
     context_parts = []
-    sources       = []
+    sources: list[dict] = []
     for i, r in enumerate(results[:4]):
         title   = r.get("title", "Web result")
         url     = r.get("url", "")
         content = r.get("content", "").strip()
         if content:
             context_parts.append(f"Burimi [{i}] ({title}): {content}")
-            # Keep sources as plain strings so the frontend source tags work unchanged
-            sources.append(f"{title} — {url}" if url else title)
+            sources.append({"title": title, "url": url, "type": "web"})
 
     return "\n\n".join(context_parts), sources
 
@@ -547,7 +547,7 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], f
         context_parts.append(
             f"Burimi [{i}] ({hit.payload.get('title', '?')}): {hit.payload['text']}"
         )
-        sources.append(hit.payload.get("title", "E panjohur"))
+        sources.append({"title": hit.payload.get("title", "E panjohur"), "type": "local"})
 
     best_raw_score = float(ranked[0][0])
     confidence     = 1.0 / (1.0 + math.exp(-best_raw_score))

@@ -251,6 +251,11 @@
   .sources { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
   .source-tag { background: var(--sand); border: 1px solid var(--border); color: var(--muted); font-size: 10px; padding: 3px 9px; border-radius: 12px; display: flex; align-items: center; gap: 4px; font-family: var(--font-body); }
   .source-tag::before { content: '📍'; font-size: 9px; }
+  .source-tag.web { background: #eef6ff; border-color: #b3d4f5; color: #2a6fb0; }
+  .source-tag.web::before { content: '🌐'; font-size: 9px; }
+  .source-tag.web a { color: #2a6fb0; text-decoration: none; font-weight: 500; }
+  .source-tag.web a:hover { text-decoration: underline; }
+  .source-tag::before { content: '📍'; font-size: 9px; }
 
   .typing-indicator { display: flex; gap: 5px; align-items: center; padding: 4px 2px; }
   .typing-indicator span { width: 7px; height: 7px; border-radius: 50%; background: var(--terra-pale); border: 1.5px solid var(--terra); animation: bounce 1.2s ease infinite; }
@@ -1005,7 +1010,13 @@
     }
 
     const srcHtml = sources.length
-      ? `<div class="sources">${sources.map(s => `<span class="source-tag">${escapeHtml(s)}</span>`).join('')}</div>`
+      ? `<div class="sources">${sources.map(s => {
+          if (s && typeof s === 'object' && s.type === 'web') {
+            return `<span class="source-tag web"><a href="${escapeAttr(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.title)}</a></span>`;
+          }
+          const label = (s && typeof s === 'object') ? s.title : s;
+          return `<span class="source-tag">${escapeHtml(label)}</span>`;
+        }).join('')}</div>`
       : '';
 
     div.innerHTML = `
@@ -1133,8 +1144,13 @@
             win.scrollTop = win.scrollHeight;
           } else if (msg.type === 'sources') {
             if (msg.sources?.length) {
-              sourcesEl.innerHTML = msg.sources
-                .map(s => `<span class="source-tag">${escapeHtml(s)}</span>`).join('');
+              sourcesEl.innerHTML = msg.sources.map(s => {
+                if (s && typeof s === 'object' && s.type === 'web') {
+                  return `<span class="source-tag web"><a href="${escapeAttr(s.url)}" target="_blank" rel="noopener">${escapeHtml(s.title)}</a></span>`;
+                }
+                const label = (s && typeof s === 'object') ? s.title : s;
+                return `<span class="source-tag">${escapeHtml(label)}</span>`;
+              }).join('');
             }
           } else if (msg.type === 'cache') {
             metaEl.insertAdjacentHTML('beforeend', '<span class="cache-tag">⚡ cached</span>');
