@@ -51,7 +51,15 @@ FETCH_K          = 10   # kandidatë nga Qdrant para reranking-ut
 FINAL_K          = 3    # rezultate finale që i dërgohen LLM-it
 
 # --- Confidence threshold ---
-CONFIDENCE_THRESHOLD = 0.45
+# sigmoid(best_raw_score) must exceed this to use local RAG context.
+# sigmoid(0.4) ≈ 0.60 — means the cross-encoder thinks the chunk is
+# meaningfully relevant, not just sharing location keywords like "Tirana".
+CONFIDENCE_THRESHOLD = 0.60
+
+# Hard floor on the raw cross-encoder logit.
+# If the best chunk scores below 0.0 (sigmoid < 0.5), the model considers
+# it more irrelevant than relevant — always fall back to web search.
+MIN_RAW_SCORE = 0.0
 
 INGEST_INTERVAL_HOURS = 24
 
@@ -522,7 +530,8 @@ def contextualize_query(question: str, history: list[dict]) -> str:
     return f"{last_user.strip()} {question.strip()}"
 
 
-def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], float]:
+def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], float, float]:
+    """Returns (context, sources, confidence, best_raw_score)."""
     dense_vec  = embeddings.embed_query(question)
     sparse_emb = list(sparse_model.query_embed(question))[0]
     sparse_vec = SparseVector(
@@ -535,7 +544,7 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], f
 
     candidates = _rrf(dense_results, sparse_results)[:FETCH_K]
     if not candidates:
-        return "", [], 0.0
+        return "", [], 0.0, -999.0
 
     pairs  = [[question, hit.payload["text"]] for hit in candidates]
     scores = _rerank_scores(pairs)
@@ -551,7 +560,8 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[str], f
 
     best_raw_score = float(ranked[0][0])
     confidence     = 1.0 / (1.0 + math.exp(-best_raw_score))
-    return "\n\n".join(context_parts), sources, confidence
+    print(f"[RAG] best_raw={best_raw_score:.3f} confidence={confidence:.3f} threshold={CONFIDENCE_THRESHOLD} min_raw={MIN_RAW_SCORE}")
+    return "\n\n".join(context_parts), sources, confidence, best_raw_score
 
 
 # ---------------------------------------------------------------------------
@@ -641,9 +651,9 @@ async def chat_stream(request: Request, req: ChatRequest):
 
     model = route_model(req.question) if req.model == "auto" else (req.model or CHOSEN_MODEL)
 
-    # Cache check — skip if the cached answer came from local RAG only (no web sources),
-    # because it may have been stored before the confidence threshold was tuned.
-    # Web-sourced answers are always worth replaying; local-only ones are re-evaluated.
+    # Cache check — only replay if the cached answer came from web search.
+    # Local-RAG-only cache entries are re-evaluated so the confidence + raw
+    # score guards get a fresh chance to trigger Tavily.
     key    = cache_key(req.question)
     cached = _cache.get(key)
     cached_is_web = cached and any(
@@ -659,7 +669,6 @@ async def chat_stream(request: Request, req: ChatRequest):
                 await asyncio.sleep(0.01)
             yield f"data: {json.dumps({'type': 'done'})}\n\n"
         return StreamingResponse(replay_cached(), media_type="text/event-stream")
-    # If cache entry exists but is local-only, drop it so we re-run the full pipeline
     if cached and not cached_is_web:
         _cache.pop(key, None)
 
@@ -673,11 +682,12 @@ async def chat_stream(request: Request, req: ChatRequest):
     # Retrieval: RAG or web fallback
     is_web = False
     if _is_time_sensitive(english_question):
-        context, sources, confidence = "", [], 0.0
+        context, sources, confidence, best_raw = "", [], 0.0, -999.0
     else:
-        context, sources, confidence = await asyncio.to_thread(retrieve_context, english_question)
+        context, sources, confidence, best_raw = await asyncio.to_thread(retrieve_context, english_question)
 
-    if confidence < CONFIDENCE_THRESHOLD:
+    rag_ok = confidence >= CONFIDENCE_THRESHOLD and best_raw >= MIN_RAW_SCORE
+    if not rag_ok:
         web_context, web_sources = await asyncio.to_thread(web_search, english_question)
         if not web_context:
             async def low_confidence_stream():
@@ -763,11 +773,12 @@ def chat(request: Request, req: ChatRequest):
 
     is_web = False
     if _is_time_sensitive(english_question):
-        context, sources, confidence = "", [], 0.0
+        context, sources, confidence, best_raw = "", [], 0.0, -999.0
     else:
-        context, sources, confidence = retrieve_context(english_question)
+        context, sources, confidence, best_raw = retrieve_context(english_question)
 
-    if confidence < CONFIDENCE_THRESHOLD:
+    rag_ok = confidence >= CONFIDENCE_THRESHOLD and best_raw >= MIN_RAW_SCORE
+    if not rag_ok:
         web_context, web_sources = web_search(english_question)
         if not web_context:
             return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
