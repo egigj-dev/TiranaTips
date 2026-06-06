@@ -42,6 +42,29 @@ def init_db():
             updated_at   TEXT NOT NULL
         )
     """)
+    # user_preferences: one row per user, holds onboarding choices.
+    # user_id is an anonymous UUID generated client-side and stored in
+    # localStorage — no auth yet. When we add real accounts later, user_id
+    # becomes the account ID and this table doesn't change shape.
+    #
+    # interests is a JSON-encoded list (e.g. '["food","coffee","art"]') —
+    # storing as a single column avoids a join table for a list that will
+    # change over time as we add/remove interest categories.
+    #
+    # All fields are nullable so users who skip onboarding (the "Maybe
+    # later" path) still have a valid row; null means "no filter applied".
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS user_preferences (
+            user_id     TEXT PRIMARY KEY,
+            mode        TEXT,         -- 'local' | 'tourist' | 'student' | 'nomad' | 'business'
+            currency    TEXT,         -- ISO 4217 code: 'EUR' | 'USD' | 'GBP' | 'TRY' | 'ALL' | ...
+            price_tier  TEXT,         -- 'budget' | 'mid' | 'premium' | 'luxury'
+            interests   TEXT,         -- JSON array, e.g. '["food","art"]'
+            location_ok INTEGER,      -- 0/1, whether the user enabled geolocation
+            created_at  TEXT NOT NULL,
+            updated_at  TEXT NOT NULL
+        )
+    """)
     conn.commit()
     conn.close()
 
@@ -206,41 +229,120 @@ def get_feedback_stats() -> dict:
         ],
     }
 
-def delete_last_exchange(session_id: str) -> str | None:
-    """
-    Fshin përgjigjen e fundit të asistentit dhe pyetjen që e shkaktoi atë. 
-    Kthen pyetjen që të mund të dërgohet përsëri, ose None nëse nuk ka asgjë për të riprovuar.
-    """
+
+# ---------------------------------------------------------------------------
+# User preferences (anonymous, per-browser)
+# ---------------------------------------------------------------------------
+# These helpers wrap the user_preferences table. The user_id is provided by
+# the client (a UUID generated and stored in localStorage on first visit);
+# we don't generate it server-side because the same browser may make
+# requests before/after a chat session is established.
+#
+# JSON is used for the interests list because it's a small set of strings
+# that changes shape over time. Storing as a delimited string would also
+# work but JSON gives us atomicity (the whole list is replaced, not edited)
+# and round-trips cleanly with the API layer.
+
+import json as _json
+
+
+def get_user_preferences(user_id: str) -> dict | None:
+    """Return preferences dict, or None if this user has never set any."""
     conn = sqlite3.connect(DB_PATH)
-    last_assist = conn.execute(
-        "SELECT id FROM messages WHERE session_id=? AND role='assistant' "
-        "ORDER BY id DESC LIMIT 1",
-        (session_id,)
+    row = conn.execute(
+        "SELECT mode, currency, price_tier, interests, location_ok, "
+        "       created_at, updated_at "
+        "FROM user_preferences WHERE user_id=?",
+        (user_id,),
     ).fetchone()
-    if last_assist is None:
-        conn.close()
+    conn.close()
+    if not row:
         return None
-    assist_id = last_assist[0]
+    mode, currency, price_tier, interests_json, location_ok, created_at, updated_at = row
+    return {
+        "user_id":     user_id,
+        "mode":        mode,
+        "currency":    currency,
+        "price_tier":  price_tier,
+        "interests":   _json.loads(interests_json) if interests_json else [],
+        "location_ok": bool(location_ok) if location_ok is not None else None,
+        "created_at":  created_at,
+        "updated_at":  updated_at,
+    }
 
-    last_user = conn.execute(
-        "SELECT id, content FROM messages WHERE session_id=? AND role='user' "
-        "AND id < ? ORDER BY id DESC LIMIT 1",
-        (session_id, assist_id)
-    ).fetchone()
 
-    ids_to_delete = [assist_id]
-    user_content = None
-    if last_user:
-        user_id, user_content = last_user
-        ids_to_delete.append(user_id)
+def save_user_preferences(
+    user_id: str,
+    mode: str | None = None,
+    currency: str | None = None,
+    price_tier: str | None = None,
+    interests: list[str] | None = None,
+    location_ok: bool | None = None,
+) -> dict:
+    """
+    Upsert preferences for a user. Any argument left as None is treated as
+    "do not change" — not "set to null". This lets the onboarding flow save
+    one screen at a time without overwriting earlier choices.
 
+    To explicitly clear a field, pass an empty string (for strings) or an
+    empty list (for interests) — the API layer translates those to NULL.
+
+    Returns the full updated preferences dict.
+    """
+    now = datetime.utcnow().isoformat()
+    existing = get_user_preferences(user_id)
+
+    # Merge: start from existing values, overlay any new ones.
+    merged = {
+        "mode":        existing["mode"]        if existing else None,
+        "currency":    existing["currency"]    if existing else None,
+        "price_tier":  existing["price_tier"]  if existing else None,
+        "interests":   existing["interests"]   if existing else [],
+        "location_ok": existing["location_ok"] if existing else None,
+    }
+    if mode        is not None: merged["mode"]        = mode        or None
+    if currency    is not None: merged["currency"]    = currency    or None
+    if price_tier  is not None: merged["price_tier"]  = price_tier  or None
+    if interests   is not None: merged["interests"]   = interests
+    if location_ok is not None: merged["location_ok"] = bool(location_ok)
+
+    interests_json = _json.dumps(merged["interests"]) if merged["interests"] else None
+    loc_int        = (1 if merged["location_ok"] else 0) if merged["location_ok"] is not None else None
+
+    conn = sqlite3.connect(DB_PATH)
     conn.execute(
-        f"DELETE FROM messages WHERE id IN ({','.join('?' * len(ids_to_delete))})",
-        ids_to_delete
+        """INSERT INTO user_preferences
+              (user_id, mode, currency, price_tier, interests, location_ok, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(user_id) DO UPDATE SET
+              mode         = excluded.mode,
+              currency     = excluded.currency,
+              price_tier   = excluded.price_tier,
+              interests    = excluded.interests,
+              location_ok  = excluded.location_ok,
+              updated_at   = excluded.updated_at""",
+        (
+            user_id,
+            merged["mode"], merged["currency"], merged["price_tier"],
+            interests_json, loc_int,
+            existing["created_at"] if existing else now,
+            now,
+        ),
     )
     conn.commit()
     conn.close()
-    return user_content
+
+    return get_user_preferences(user_id)
+
+
+def delete_user_preferences(user_id: str) -> bool:
+    """Wipe preferences for a user. Used by a 'reset onboarding' flow."""
+    conn = sqlite3.connect(DB_PATH)
+    cur  = conn.execute("DELETE FROM user_preferences WHERE user_id=?", (user_id,))
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
 
 
 # Auto-inicializim kur importohet moduli

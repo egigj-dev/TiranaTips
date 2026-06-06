@@ -3,1111 +3,2427 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#f5ecd8">
 <title>TiranaTips — Your City Guide</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,700;1,400&family=Outfit:wght@300;400;500&display=swap" rel="stylesheet">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,400;0,500;0,700;1,400&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
 <style>
+  /* ============================================================
+     TiranaTips — Web-app layout
+     Mobile design language preserved (Playfair serif, cream
+     paper, olive+terra). Structure adapted for web: top nav
+     instead of bottom tabs, wider content, right-side drawer.
+     ============================================================ */
+
   :root {
-    --sand:      #f5ede0;
-    --cream:     #fdf8f2;
-    --terra:     #c96b3f;
-    --terra-dim: #a04f28;
-    --terra-pale:#f0d5c5;
-    --ink:       #1e1810;
-    --brown:     #5c3d1e;
-    --muted:     #9b856b;
-    --leaf:      #4a7c59;
-    --sky:       #4a7fa5;
-    --border:    #e2d4c2;
-    --white:     #ffffff;
-    --panel-w:   320px;
-    --radius:    16px;
-    --font-serif: 'Playfair Display', Georgia, serif;
-    --font-body:  'Outfit', sans-serif;
-    --grain: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.75' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)' opacity='0.04'/%3E%3C/svg%3E");
+    --cream:        #ece2cb;
+    --paper:        #f5ecd8;
+    --paper-warm:   #faf4e8;
+    --paper-card:   #fbf5e9;
+    --white:        #ffffff;
+
+    --ink:          #1e1810;
+    --ink-soft:     #4a3d2a;
+    --muted:        #968670;
+    --muted-soft:   #b5a890;
+
+    --border:       #e2d6bd;
+    --border-soft:  #ede2cd;
+    --border-warm:  #d8c9a8;
+
+    --terra:        #c96b3f;
+    --terra-soft:   #f3d4c0;
+    --terra-pale:   #faead6;
+    --terra-dim:    #a04f28;
+
+    --olive:        #7d8a5c;
+    --olive-soft:   #d6dec5;
+    --olive-pale:   #e8edd9;
+    --olive-dim:    #5e6b40;
+
+    --sage:         #b4c2a4;
+    --sage-soft:    #dde4d0;
+    --peach-soft:   #f5d6bd;
+    --butter-soft:  #f2dca8;
+    --sky:          #6e8aa0;
+    --sky-soft:     #d6e2ec;
+    --gold:         #b8923c;
+
+    --radius-card:  20px;
+    --radius-tile:  16px;
+    --radius-chip:  100px;
+    --shadow-card:  0 1px 2px rgba(70,50,20,.05), 0 4px 14px rgba(70,50,20,.06);
+    --shadow-soft:  0 2px 10px rgba(70,50,20,.05);
+    --shadow-lift:  0 8px 28px rgba(70,50,20,.12);
+
+    --font-serif:   'Playfair Display', 'Times New Roman', serif;
+    --font-body:    'Outfit', system-ui, sans-serif;
+
+    --content-max:  1180px;
+    --nav-h:        72px;
+
+    --paper-grain:  url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='240' height='240'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='240' height='240' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E");
   }
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  body {
-    background: var(--sand);
+  html, body {
+    min-height: 100vh;
+    background: var(--paper);
+    background-image: var(--paper-grain);
     color: var(--ink);
     font-family: var(--font-body);
-    font-size: 14px;
-    height: 100vh;
+    font-size: 15px;
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+  body { display: flex; flex-direction: column; }
+
+  /* ============================================================
+     Top navigation — sticky.
+     ============================================================ */
+  .top-nav {
+    position: sticky;
+    top: 0;
+    z-index: 40;
+    height: var(--nav-h);
+    background: rgba(245, 236, 216, .88);
+    backdrop-filter: saturate(160%) blur(14px);
+    -webkit-backdrop-filter: saturate(160%) blur(14px);
+    border-bottom: 1px solid var(--border-soft);
     display: flex;
-    flex-direction: column;
-    overflow: hidden;
-    background-image: var(--grain);
+    align-items: center;
+  }
+  .nav-inner {
+    width: 100%;
+    max-width: var(--content-max);
+    margin: 0 auto;
+    padding: 0 28px;
+    display: flex;
+    align-items: center;
+    gap: 24px;
+  }
+  .brand {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 26px;
+    letter-spacing: -.5px;
+    color: var(--ink);
+    flex-shrink: 0;
+    line-height: 1;
+  }
+  .tab-pills {
+    display: flex;
+    gap: 4px;
+    margin: 0 auto;
+    background: var(--paper-card);
+    border: 1px solid var(--border-soft);
+    padding: 4px;
+    border-radius: 100px;
+    box-shadow: var(--shadow-soft);
+  }
+  .tab-btn {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    padding: 8px 18px 8px 14px;
+    border-radius: 100px;
+    color: var(--muted);
+    font-family: var(--font-body);
+    font-size: 13.5px;
+    font-weight: 500;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    transition: all .18s;
+    white-space: nowrap;
+  }
+  .tab-btn:hover { color: var(--ink-soft); }
+  .tab-btn svg { width: 17px; height: 17px; }
+  .tab-btn.active { background: var(--white); box-shadow: var(--shadow-soft); }
+  .tab-btn[data-tab="today"].active   { color: var(--terra); }
+  .tab-btn[data-tab="ask"].active     { color: var(--olive-dim); }
+  .tab-btn[data-tab="global"].active  { color: var(--terra); }
+
+  .profile-btn {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-warm);
+    background: var(--paper-warm);
+    cursor: pointer;
+    display: grid; place-items: center;
+    color: var(--muted);
+    transition: all .2s;
+    flex-shrink: 0;
+  }
+  .profile-btn:hover { color: var(--ink); border-color: var(--ink-soft); }
+  .profile-btn svg { width: 19px; height: 19px; }
+
+  .lang-pill {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+  }
+  .lang-pill select {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background: var(--paper-card);
+    border: 1.5px solid var(--border-warm);
+    color: var(--ink-soft);
+    font-family: var(--font-body);
+    font-size: 13px;
+    font-weight: 500;
+    padding: 8px 28px 8px 14px;
+    border-radius: 100px;
+    cursor: pointer;
+    outline: none;
+    transition: all .15s;
+    line-height: 1;
+  }
+  .lang-pill select:hover { border-color: var(--olive); color: var(--olive-dim); }
+  .lang-pill select:focus { border-color: var(--olive); box-shadow: 0 0 0 3px var(--olive-pale); }
+  .lang-pill .caret {
+    position: absolute;
+    right: 10px;
+    top: 50%;
+    transform: translateY(-50%);
+    pointer-events: none;
+    color: var(--muted);
+    font-size: 10px;
+  }
+  @media (max-width: 560px) {
+    .lang-pill select { padding: 7px 24px 7px 11px; font-size: 12.5px; }
   }
 
-  /* ── Header ── */
-  header {
+  /* ============================================================
+     Main content
+     ============================================================ */
+  .main {
+    flex: 1;
+    width: 100%;
+    max-width: var(--content-max);
+    margin: 0 auto;
+    padding: 32px 28px 80px;
+  }
+  .tab-panel { display: none; animation: fadeUp .35s ease both; }
+  .tab-panel.active { display: block; }
+  @keyframes fadeUp {
+    from { opacity: 0; transform: translateY(8px); }
+    to   { opacity: 1; transform: translateY(0); }
+  }
+
+  .section-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin: 36px 4px 16px;
+  }
+  .section-head:first-child { margin-top: 8px; }
+  .section-head h2 {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 26px;
+    color: var(--ink);
+    letter-spacing: -.4px;
+  }
+  .section-head .meta {
+    font-size: 12px;
+    color: var(--muted);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .live-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--terra);
+    animation: livepulse 2.5s ease-in-out infinite;
+  }
+  @keyframes livepulse {
+    0%,100% { box-shadow: 0 0 0 0 rgba(201,107,63,.6); }
+    50%     { box-shadow: 0 0 0 6px rgba(201,107,63,0); }
+  }
+
+  /* ============================================================
+     TAB 1 — TODAY
+     ============================================================ */
+  .greeting-card {
+    position: relative;
+    background: linear-gradient(120deg, var(--paper-warm) 0%, #f3e5cf 100%);
+    border-radius: 28px;
+    padding: 48px 52px 44px;
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+    min-height: 320px;
+    display: flex;
+    align-items: center;
+  }
+  .greeting-content { position: relative; z-index: 2; max-width: 55%; }
+  .greeting-card h1 {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 56px;
+    line-height: 1.02;
+    color: var(--ink);
+    letter-spacing: -1.6px;
+    margin-bottom: 14px;
+  }
+  .greeting-card .date-line {
+    color: var(--ink-soft);
+    font-size: 16px;
+    margin-bottom: 24px;
+  }
+  .greeting-pills { display: flex; gap: 10px; flex-wrap: wrap; }
+  .pill {
+    background: var(--white);
+    border: 1.5px solid var(--border);
+    border-radius: var(--radius-chip);
+    padding: 8px 16px;
+    font-size: 14px;
+    color: var(--ink-soft);
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+  }
+  .pill.pill-olive { color: var(--olive-dim); border-color: var(--olive-soft); }
+  .pill svg { width: 16px; height: 16px; }
+
+  .skyline-art {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    width: 50%;
+    max-width: 520px;
+    pointer-events: none;
+    opacity: .95;
+  }
+
+  .alert-row {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+  .alert-card {
     display: flex;
     align-items: center;
     gap: 14px;
-    padding: 12px 24px;
-    background: var(--terra);
+    background: var(--paper-card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .alert-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+  .alert-icon {
+    width: 48px; height: 48px;
+    border-radius: 14px;
+    display: grid; place-items: center;
     flex-shrink: 0;
+  }
+  .alert-icon.icon-rain  { background: var(--sage-soft); }
+  .alert-icon.icon-music { background: var(--peach-soft); }
+  .alert-icon.icon-cone  { background: var(--butter-soft); }
+  .alert-text { flex: 1; min-width: 0; }
+  .alert-title { font-weight: 500; color: var(--ink); font-size: 15px; line-height: 1.3; margin-bottom: 3px; }
+  .alert-sub { font-size: 13px; color: var(--muted); }
+  .alert-card .chevron { color: var(--muted-soft); font-size: 18px; flex-shrink: 0; }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 14px;
+  }
+  .stat-card {
+    background: var(--paper-card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    padding: 18px 20px 22px;
+    min-height: 150px;
+    display: flex;
+    flex-direction: column;
     position: relative;
     overflow: hidden;
-    box-shadow: 0 2px 16px rgba(201,107,63,.3);
+  }
+  .stat-label {
+    font-size: 10.5px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: 500;
+    color: var(--muted);
+    margin-bottom: 10px;
+  }
+  .stat-value {
+    font-family: var(--font-serif);
+    font-size: 30px;
+    font-weight: 400;
+    color: var(--ink);
+    line-height: 1.05;
+    margin-bottom: 6px;
+    letter-spacing: -.5px;
+  }
+  .stat-sub {
+    font-size: 12.5px;
+    color: var(--muted);
+    line-height: 1.35;
+    margin-bottom: auto;
+  }
+  .stat-card .stat-foot {
+    margin-top: 14px;
+    display: flex;
+    justify-content: flex-end;
+  }
+  .stat-icon-bubble {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+  }
+  .stat-card .sparkline {
+    position: absolute;
+    bottom: 14px; left: 18px; right: 18px;
+    height: 28px;
   }
 
-  header::before {
-    content: '';
+  .mood-card {
+    background: var(--paper-card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    padding: 24px 28px 26px;
+    display: flex;
+    gap: 24px;
+    align-items: flex-start;
+  }
+  .mood-leaf {
+    width: 68px;
+    flex-shrink: 0;
+    color: var(--olive);
+    margin-top: 4px;
+  }
+  .mood-body { flex: 1; min-width: 0; }
+  .mood-label {
+    font-size: 10.5px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: 500;
+    color: var(--olive-dim);
+    margin-bottom: 8px;
+  }
+  .mood-title {
+    font-family: var(--font-serif);
+    font-size: 26px;
+    font-weight: 400;
+    color: var(--ink);
+    line-height: 1.2;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--border-soft);
+    letter-spacing: -.3px;
+  }
+  .mood-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 24px; }
+  .mood-grid h4 { font-size: 11px; color: var(--muted); font-weight: 500; margin-bottom: 5px; letter-spacing: .3px; text-transform: uppercase; }
+  .mood-grid p { font-size: 14px; color: var(--ink-soft); line-height: 1.45; }
+
+  /* ============================================================
+     TAB 2 — ASK TIRANA
+     ============================================================ */
+  .ask-wrap { max-width: 920px; margin: 0 auto; }
+
+  .ask-header { padding: 12px 4px 4px; }
+  .ask-eyebrow {
+    color: var(--olive-dim);
+    font-size: 15px;
+    margin-bottom: 8px;
+  }
+  .ask-headline {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 56px;
+    line-height: 1.02;
+    letter-spacing: -1.6px;
+    color: var(--ink);
+    margin-bottom: 14px;
+  }
+  .ask-sub {
+    color: var(--muted);
+    font-size: 16px;
+    margin-bottom: 28px;
+  }
+  .ask-sub .dash { color: var(--muted-soft); margin: 0 6px; }
+
+  .chip-row {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+  }
+  .chip {
+    background: var(--paper-card);
+    border: 1.5px solid var(--border-soft);
+    border-radius: var(--radius-chip);
+    padding: 9px 16px 9px 12px;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: all .15s;
+    font-family: var(--font-body);
+  }
+  .chip:hover { border-color: var(--olive); color: var(--olive-dim); background: var(--olive-pale); }
+  .chip svg { width: 17px; height: 17px; color: var(--olive); }
+
+  .suggestion-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 28px;
+  }
+  .suggest-card {
+    background: var(--paper-card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    padding: 16px 18px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    cursor: pointer;
+    transition: all .18s;
+    text-align: left;
+    font-family: inherit;
+    width: 100%;
+  }
+  .suggest-card:hover {
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-card);
+    border-color: var(--border-warm);
+  }
+  .suggest-card.featured {
+    background: var(--terra-pale);
+    border-color: var(--terra-soft);
+  }
+  .suggest-icon {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+  }
+  .suggest-icon.bg-cream { background: var(--paper-warm); color: var(--terra); border: 1px solid var(--border-soft); }
+  .suggest-icon.bg-terra { background: var(--terra-soft); color: var(--terra-dim); }
+  .suggest-icon.bg-olive { background: var(--olive-pale); color: var(--olive-dim); }
+  .suggest-icon.bg-sage  { background: var(--sage-soft); color: var(--olive-dim); }
+  .suggest-text { flex: 1; min-width: 0; font-size: 15px; color: var(--ink); line-height: 1.3; }
+  .suggest-card .chevron { color: var(--muted-soft); font-size: 18px; flex-shrink: 0; }
+
+  #chat-window {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    margin-bottom: 28px;
+  }
+  #chat-window:empty { display: none; }
+
+  .chat-row { display: flex; gap: 10px; }
+  .chat-row.user { justify-content: flex-end; }
+  .chat-row.user .chat-bubble {
+    background: var(--olive);
+    color: #fff;
+    border-radius: 18px 18px 4px 18px;
+    border: none;
+  }
+  .chat-bubble {
+    max-width: 80%;
+    background: var(--paper-card);
+    border: 1px solid var(--border-soft);
+    border-radius: 18px 18px 18px 4px;
+    padding: 16px 20px;
+    font-size: 15px;
+    line-height: 1.65;
+    color: var(--ink);
+    box-shadow: var(--shadow-soft);
+  }
+  .chat-bubble.is-error { background: #fff2ee; border-color: #f0c5b0; color: var(--terra-dim); }
+  .chat-bubble.is-warning { background: #fff8e8; border-color: #e8d5a0; color: #7a5c1e; }
+  .chat-bubble.is-result { padding: 22px 24px 18px; background: var(--paper-warm); border-color: var(--border-warm); }
+
+  .bubble-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 12px;
+    flex-wrap: wrap;
+  }
+  .bubble-head .sparkle-icon { color: var(--gold); font-size: 17px; line-height: 1; }
+  .bubble-head .result-title { font-family: var(--font-serif); font-size: 21px; font-weight: 400; color: var(--ink); flex: 1; line-height: 1.2; }
+  .meta-tag {
+    font-size: 9.5px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--muted);
+    background: var(--paper-warm);
+    border: 1px solid var(--border-soft);
+    padding: 2px 8px;
+    border-radius: 4px;
+  }
+  .meta-tag.cache  { color: var(--olive-dim); background: var(--olive-pale); border-color: var(--olive-soft); }
+  .meta-tag.stopped{ color: var(--terra-dim); background: var(--terra-pale); border-color: var(--terra-soft); }
+  .meta-tag.web    { color: var(--sky); background: var(--sky-soft); border-color: var(--sky-soft); }
+
+  .sources {
+    margin-top: 14px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+  .source-tag {
+    font-size: 11.5px;
+    color: var(--muted);
+    background: var(--paper-warm);
+    border: 1px solid var(--border-soft);
+    padding: 4px 10px 4px 8px;
+    border-radius: var(--radius-chip);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .source-tag::before { content: '◌'; color: var(--olive); font-size: 8px; }
+  /* Web-search source: distinct color + globe icon + the chip itself
+     becomes a link target (the inner <a> spans the label). */
+  .source-tag.web {
+    background: var(--sky-soft);
+    border-color: #b8cad8;
+    color: var(--sky);
+  }
+  .source-tag.web::before { content: '🌐'; color: var(--sky); font-size: 10px; }
+  .source-tag.web a {
+    color: var(--sky);
+    text-decoration: none;
+    font-weight: 500;
+  }
+  .source-tag.web a:hover { text-decoration: underline; }
+
+  .action-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-soft);
+    flex-wrap: wrap;
+  }
+  .action-row .label { font-size: 11px; color: var(--muted); letter-spacing: .4px; text-transform: uppercase; }
+  .action-btn {
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    width: 32px; height: 32px;
+    border-radius: 9px;
+    display: grid; place-items: center;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--muted);
+    transition: all .15s;
+  }
+  .action-btn:hover:not(:disabled) { border-color: var(--olive); background: var(--olive-pale); color: var(--olive-dim); }
+  .action-btn.up.selected   { background: var(--olive-pale); border-color: var(--olive); color: var(--olive-dim); }
+  .action-btn.down.selected { background: #fff0eb; border-color: var(--terra); color: var(--terra-dim); }
+  .action-btn:disabled { opacity: .45; cursor: not-allowed; }
+  .retry-btn {
+    margin-left: auto;
+    background: transparent;
+    border: 1px solid var(--border-soft);
+    padding: 5px 12px 5px 10px;
+    border-radius: 9px;
+    font-family: inherit;
+    font-size: 12px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    transition: all .15s;
+  }
+  .retry-btn:hover { border-color: var(--terra); color: var(--terra-dim); background: var(--terra-pale); }
+  .thanks { font-size: 12px; color: var(--olive-dim); opacity: 0; transition: opacity .25s; font-weight: 500; }
+  .thanks.show { opacity: 1; }
+
+  .typing-dots { display: inline-flex; gap: 4px; align-items: center; padding: 4px 2px; }
+  .typing-dots span {
+    width: 6px; height: 6px; border-radius: 50%;
+    background: var(--olive);
+    animation: typing 1.2s ease-in-out infinite;
+  }
+  .typing-dots span:nth-child(2) { animation-delay: .15s; }
+  .typing-dots span:nth-child(3) { animation-delay: .3s; }
+  @keyframes typing { 0%,60%,100% { transform: translateY(0); opacity: .4; } 30% { transform: translateY(-5px); opacity: 1; } }
+
+  .md p { margin: 0 0 8px; line-height: 1.65; }
+  .md p:last-child { margin-bottom: 0; }
+  .md ul, .md ol { padding-left: 20px; margin: 8px 0; }
+  .md li { margin: 4px 0; line-height: 1.55; }
+  .md strong { color: var(--terra-dim); font-weight: 600; }
+  .md em { color: var(--olive-dim); font-style: italic; }
+  .md code { background: var(--paper-warm); padding: 1px 5px; border-radius: 4px; font-size: 13px; font-family: 'SF Mono', Menlo, monospace; color: var(--terra-dim); }
+  .md pre { background: var(--paper-warm); border: 1px solid var(--border-soft); padding: 10px 14px; border-radius: 10px; overflow-x: auto; margin: 8px 0; }
+  .md pre code { background: none; padding: 0; }
+  .md h1, .md h2, .md h3 { font-family: var(--font-serif); font-weight: 500; margin: 12px 0 5px; line-height: 1.2; color: var(--ink); }
+  .md h1 { font-size: 20px; }
+  .md h2 { font-size: 18px; }
+  .md h3 { font-size: 16px; }
+  .md a { color: var(--terra-dim); text-decoration: underline; }
+  .md blockquote { border-left: 3px solid var(--olive); padding: 4px 12px; margin: 8px 0; color: var(--muted); font-style: italic; }
+
+  .ask-input-wrap {
+    position: sticky;
+    bottom: 0;
+    background: linear-gradient(180deg, transparent 0%, var(--paper) 35%, var(--paper) 100%);
+    padding: 22px 0 16px;
+    margin: 0 -28px;
+    padding-left: 28px;
+    padding-right: 28px;
+    z-index: 5;
+  }
+  .context-banner {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    background: var(--olive-pale);
+    border: 1px solid var(--olive-soft);
+    border-radius: 12px;
+    padding: 9px 14px;
+    margin-bottom: 10px;
+    font-size: 12.5px;
+    color: var(--olive-dim);
+    max-width: 920px;
+    margin-left: auto;
+    margin-right: auto;
+  }
+  .context-banner.show { display: flex; }
+  .context-banner .ctx-text { flex: 1; }
+  .context-banner button { background: none; border: none; cursor: pointer; color: var(--olive-dim); font-size: 14px; line-height: 1; padding: 0 2px; }
+  .context-banner button:hover { color: var(--terra); }
+
+  .ask-input {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    background: var(--paper-card);
+    border: 1.5px solid var(--border-soft);
+    border-radius: 100px;
+    padding: 8px 8px 8px 20px;
+    box-shadow: var(--shadow-soft);
+    transition: border-color .15s, box-shadow .15s;
+    max-width: 920px;
+    margin: 0 auto;
+  }
+  .ask-input:focus-within { border-color: var(--olive); box-shadow: 0 0 0 4px var(--olive-pale), var(--shadow-soft); }
+  .ask-input .chat-icon { color: var(--muted-soft); font-size: 18px; flex-shrink: 0; }
+  #user-input {
+    flex: 1;
+    background: none;
+    border: none;
+    outline: none;
+    font-family: var(--font-body);
+    font-size: 15px;
+    color: var(--ink);
+    resize: none;
+    max-height: 140px;
+    min-height: 24px;
+    line-height: 1.4;
+    padding: 8px 0;
+  }
+  #user-input::placeholder { color: var(--muted-soft); }
+  #send-btn {
+    width: 42px; height: 42px;
+    border-radius: 50%;
+    border: none;
+    background: var(--olive);
+    color: #fff;
+    cursor: pointer;
+    display: grid; place-items: center;
+    flex-shrink: 0;
+    transition: all .15s;
+  }
+  #send-btn:hover:not(:disabled) { background: var(--olive-dim); transform: scale(1.04); }
+  #send-btn:disabled { background: var(--muted-soft); cursor: not-allowed; }
+  #send-btn.stopping { background: var(--terra); }
+  #send-btn.stopping:hover { background: var(--terra-dim); }
+  #send-btn svg { width: 18px; height: 18px; }
+
+  /* ============================================================
+     TAB 3 — GLOBAL VIEW
+     ============================================================ */
+  .global-hero {
+    position: relative;
+    background: linear-gradient(135deg, #f5ead0 0%, #ede0c3 100%);
+    border-radius: 28px;
+    padding: 48px 52px 44px;
+    overflow: hidden;
+    box-shadow: var(--shadow-card);
+    min-height: 280px;
+    display: flex;
+    align-items: center;
+  }
+  .global-hero .hero-content { position: relative; z-index: 2; max-width: 60%; }
+  .global-hero .eyebrow {
+    color: var(--gold);
+    font-size: 15px;
+    margin-bottom: 10px;
+  }
+  .global-hero h1 {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 56px;
+    line-height: 1.02;
+    color: var(--ink);
+    letter-spacing: -1.6px;
+    margin-bottom: 12px;
+  }
+  .global-hero p {
+    font-size: 16px;
+    color: var(--ink-soft);
+    line-height: 1.5;
+  }
+  .world-bg {
     position: absolute;
     inset: 0;
-    background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='60' height='60'%3E%3Ccircle cx='30' cy='30' r='28' fill='none' stroke='rgba(255,255,255,0.06)' stroke-width='1'/%3E%3Ccircle cx='30' cy='30' r='18' fill='none' stroke='rgba(255,255,255,0.04)' stroke-width='1'/%3E%3C/svg%3E") repeat;
+    background-image: radial-gradient(circle at 70% 40%, rgba(184,146,60,.10), transparent 50%);
     pointer-events: none;
   }
 
-  .logo-wrap { display: flex; align-items: center; gap: 10px; text-decoration: none; }
-
-  .logo-icon {
-    width: 38px; height: 38px;
-    background: rgba(255,255,255,0.15);
-    border: 1.5px solid rgba(255,255,255,0.3);
-    border-radius: 10px;
+  .news-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+  }
+  .news-card {
+    display: flex;
+    gap: 14px;
+    background: var(--paper-card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    padding: 16px;
+    cursor: pointer;
+    transition: transform .15s, box-shadow .15s;
+  }
+  .news-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-card); }
+  .news-body { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .news-cat {
+    font-size: 10.5px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: 500;
+    margin-bottom: 8px;
+  }
+  .news-cat.cat-economy { color: var(--olive-dim); }
+  .news-cat.cat-culture { color: var(--terra-dim); }
+  .news-cat.cat-eu      { color: var(--sky); }
+  .news-cat.cat-travel  { color: var(--gold); }
+  .news-title {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 18px;
+    line-height: 1.22;
+    color: var(--ink);
+    margin-bottom: auto;
+    letter-spacing: -.2px;
+  }
+  .news-pub {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .pub-badge {
+    width: 26px; height: 26px;
+    border-radius: 50%;
     display: grid; place-items: center;
-    font-size: 20px;
-    backdrop-filter: blur(4px);
+    font-size: 9.5px;
+    font-weight: 700;
+    flex-shrink: 0;
+    color: #fff;
+    font-family: var(--font-body);
+  }
+  .pub-badge.ft        { background: var(--terra-soft); color: #1c1c1c; }
+  .pub-badge.monocle   { background: #1f1f1f; }
+  .pub-badge.reuters   { background: var(--terra); position: relative; }
+  .pub-badge.reuters::before { content: '⊙'; color: #fff; }
+  .pub-badge.lonely    { background: #1f4ea8; font-size: 7.5px; line-height: 1; flex-direction: column; padding: 2px; }
+  .pub-badge.lonely span { display: block; }
+  .pub-name { font-size: 12.5px; color: var(--muted); }
+
+  .news-thumb {
+    width: 130px;
+    border-radius: 12px;
+    overflow: hidden;
+    flex-shrink: 0;
+    background: var(--paper-warm);
+  }
+  .news-thumb svg, .news-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+
+  .sentiment-cta {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    background: var(--paper-card);
+    border: 1px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    padding: 18px 22px 18px 18px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .sentiment-cta:hover { background: var(--paper-warm); }
+  .sentiment-cta .globe-icon {
+    width: 48px; height: 48px;
+    border-radius: 50%;
+    background: var(--paper-warm);
+    border: 1.5px solid var(--border-soft);
+    display: grid; place-items: center;
+    color: var(--olive-dim);
     flex-shrink: 0;
   }
+  .sentiment-cta-text { flex: 1; }
+  .sentiment-cta-title { font-family: var(--font-serif); font-size: 19px; color: var(--ink); line-height: 1.2; margin-bottom: 3px; }
+  .sentiment-cta-sub { font-size: 13px; color: var(--muted); }
 
-  .logo-text { font-family: var(--font-serif); font-size: 22px; font-weight: 700; color: #fff; letter-spacing: -0.5px; }
-  .logo-sub { font-size: 10px; color: rgba(255,255,255,0.65); letter-spacing: 2px; text-transform: uppercase; display: block; font-family: var(--font-body); font-weight: 300; line-height: 1; margin-top: 1px; }
+  /* ============================================================
+     Profile drawer
+     ============================================================ */
+  .drawer-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(30,24,16,.32);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity .25s;
+    z-index: 50;
+  }
+  .drawer-backdrop.open { opacity: 1; pointer-events: auto; }
 
-  .header-right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
+  .drawer {
+    position: fixed;
+    top: 0; right: 0; bottom: 0;
+    width: min(420px, 92vw);
+    background: var(--paper);
+    background-image: var(--paper-grain);
+    border-left: 1px solid var(--border-soft);
+    transform: translateX(100%);
+    transition: transform .3s cubic-bezier(.2,.7,.2,1);
+    z-index: 51;
+    box-shadow: -12px 0 32px rgba(70,50,20,.18);
+    display: flex;
+    flex-direction: column;
+  }
+  .drawer.open { transform: translateX(0); }
+  .drawer-head {
+    padding: 22px 24px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-shrink: 0;
+    border-bottom: 1px solid var(--border-soft);
+  }
+  .drawer-head h3 { font-family: var(--font-serif); font-weight: 400; font-size: 24px; color: var(--ink); }
+  .drawer-close { background: none; border: none; cursor: pointer; color: var(--muted); font-size: 24px; line-height: 1; padding: 4px 8px; }
+  .drawer-close:hover { color: var(--ink); }
 
-  .city-badge {
-    background: rgba(255,255,255,0.15);
-    border: 1px solid rgba(255,255,255,0.25);
-    border-radius: 20px; padding: 5px 13px;
-    font-size: 12px; color: #fff;
-    display: flex; align-items: center; gap: 6px;
-    backdrop-filter: blur(4px); font-weight: 400;
+  .drawer-body { flex: 1; overflow-y: auto; }
+  .drawer-section { padding: 18px 24px 20px; border-bottom: 1px solid var(--border-soft); }
+  .drawer-section:last-child { border-bottom: none; }
+  .drawer-section h4 {
+    font-size: 10.5px;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    font-weight: 500;
+    color: var(--muted);
+    margin-bottom: 12px;
   }
 
-  .city-badge-dot { width: 6px; height: 6px; background: #7ddd9e; border-radius: 50%; animation: pulse 2.5s ease-in-out infinite; }
-  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.3} }
-
-  .model-selector { display: flex; gap: 4px; }
-
-  .model-pill {
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.2);
-    color: rgba(255,255,255,0.7);
-    font-family: var(--font-body); font-size: 11px;
-    padding: 4px 11px; border-radius: 20px;
-    cursor: pointer; transition: all .2s; letter-spacing: .3px;
+  .drawer-row {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 10px;
   }
-  .model-pill.active { background: rgba(255,255,255,0.25); border-color: rgba(255,255,255,0.5); color: #fff; font-weight: 500; }
-
-  .hist-toggle {
-    background: rgba(255,255,255,0.1);
-    border: 1px solid rgba(255,255,255,0.25);
-    color: rgba(255,255,255,0.8); cursor: pointer;
-    font-family: var(--font-body); font-size: 11px;
-    padding: 5px 13px; border-radius: 8px; transition: all .2s;
-    letter-spacing: .5px; display: flex; align-items: center; gap: 6px;
-  }
-  .hist-toggle:hover, .hist-toggle.active { background: rgba(255,255,255,0.2); color: #fff; }
-  .hist-toggle .badge { background: #fff; color: var(--terra); font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 10px; display: none; }
-  .hist-toggle .badge.show { display: inline; }
-
-  /* ── Session bar ── */
-  .session-bar {
-    padding: 7px 24px;
-    border-bottom: 1px solid var(--border);
-    display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
-    font-size: 11px; color: var(--muted);
-    background: var(--cream); flex-shrink: 0; letter-spacing: .5px;
-  }
-  .session-bar label { text-transform: uppercase; font-weight: 500; font-size: 10px; letter-spacing: 1.2px; color: var(--muted); }
-
-  /* Session label — click to rename */
-  #session-label {
-    background: var(--white);
-    border: 1.5px solid var(--border);
+  .drawer-row label { font-size: 13.5px; color: var(--ink-soft); min-width: 80px; }
+  .drawer-row select {
+    flex: 1;
+    background: var(--paper-card);
+    border: 1.5px solid var(--border-soft);
+    border-radius: 10px;
+    padding: 9px 12px;
+    font-family: var(--font-body);
+    font-size: 13.5px;
     color: var(--ink);
-    font-family: var(--font-body); font-size: 12px;
-    padding: 4px 10px; border-radius: 8px;
-    min-width: 120px; max-width: 200px;
-    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-    display: inline-block; cursor: text;
-    transition: border-color .2s;
-    user-select: none;
-  }
-  #session-label:hover { border-color: var(--terra); }
-
-  /* Inline rename input — replaces the label span */
-  .inline-rename-input {
-    background: var(--white);
-    border: 1.5px solid var(--terra) !important;
-    color: var(--ink);
-    font-family: var(--font-body); font-size: 12px;
-    padding: 4px 10px; border-radius: 8px;
-    min-width: 120px; max-width: 200px;
     outline: none;
-    box-shadow: 0 0 0 3px rgba(201,107,63,.12);
+    cursor: pointer;
+  }
+  .drawer-row select:focus { border-color: var(--olive); }
+
+  .session-current {
+    background: var(--paper-card);
+    border: 1.5px solid var(--border-soft);
+    border-radius: 12px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+  }
+  .session-current label {
+    font-size: 10px; letter-spacing: 1px; text-transform: uppercase;
+    color: var(--muted); display: block; margin-bottom: 6px;
+  }
+  .session-name-input {
+    width: 100%;
+    background: var(--paper);
+    border: 1px solid var(--border-soft);
+    border-radius: 7px;
+    font-family: var(--font-body);
+    font-size: 14px;
+    color: var(--ink);
+    outline: none;
+    padding: 7px 9px;
+    transition: border-color .15s;
+  }
+  .session-name-input:focus { border-color: var(--olive); }
+
+  .session-actions { display: flex; gap: 8px; margin-bottom: 14px; }
+  .small-btn {
+    flex: 1;
+    background: transparent;
+    border: 1.5px solid var(--border-soft);
+    color: var(--ink-soft);
+    padding: 9px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 12.5px;
+    transition: all .15s;
+  }
+  .small-btn:hover { border-color: var(--olive); color: var(--olive-dim); background: var(--olive-pale); }
+  .small-btn.primary { background: var(--olive); color: #fff; border-color: var(--olive); }
+  .small-btn.primary:hover { background: var(--olive-dim); }
+
+  .session-list { display: flex; flex-direction: column; gap: 4px; }
+  .session-item {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 12px;
+    border-radius: 10px;
+    cursor: pointer;
+    transition: background .15s;
+  }
+  .session-item:hover { background: var(--paper-card); }
+  .session-item.active { background: var(--olive-pale); }
+  .session-item .name { flex: 1; font-size: 13.5px; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .session-item .actions { display: flex; gap: 2px; }
+  .session-item button { background: none; border: none; cursor: pointer; color: var(--muted); padding: 4px 6px; border-radius: 5px; font-size: 12.5px; }
+  .session-item button:hover { background: var(--paper-warm); color: var(--terra); }
+
+  .summary-display {
+    background: var(--olive-pale);
+    border: 1px solid var(--olive-soft);
+    border-radius: 12px;
+    padding: 14px 16px;
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--olive-dim);
+    margin-bottom: 10px;
+  }
+  .summary-empty { color: var(--muted); font-size: 12.5px; text-align: center; padding: 14px 0; }
+
+  .upload-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    background: transparent;
+    border: 1.5px dashed var(--border-warm);
+    color: var(--muted);
+    padding: 9px 14px;
+    border-radius: 10px;
+    cursor: pointer;
+    font-size: 12.5px;
+    transition: all .15s;
+  }
+  .upload-label:hover { border-color: var(--olive); color: var(--olive-dim); background: var(--olive-pale); }
+  .upload-label input { display: none; }
+
+  .toast {
+    position: fixed;
+    bottom: 32px;
+    left: 50%;
+    transform: translateX(-50%) translateY(20px);
+    background: var(--ink);
+    color: var(--paper);
+    padding: 11px 22px;
+    border-radius: 100px;
+    font-size: 13px;
+    box-shadow: 0 8px 24px rgba(0,0,0,.3);
+    opacity: 0;
+    pointer-events: none;
+    transition: all .25s;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+  /* ============================================================
+     Onboarding overlay
+     ============================================================ */
+  .onboard-overlay {
+    position: fixed;
+    inset: 0;
+    z-index: 80;
+    background: var(--paper);
+    background-image: var(--paper-grain);
+    display: none;
+    flex-direction: column;
+    align-items: center;
+    overflow-y: auto;
+  }
+  .onboard-overlay.open { display: flex; }
+
+  .onboard-card {
+    width: 100%;
+    max-width: 560px;
+    margin: auto;
+    padding: 40px 32px;
+    display: flex;
+    flex-direction: column;
+    min-height: 100%;
+  }
+  @media (min-width: 600px) {
+    .onboard-card { min-height: auto; margin: 48px auto; }
   }
 
-  .new-session-btn {
-    background: none; border: 1.5px solid var(--border);
-    color: var(--muted); cursor: pointer; font-family: var(--font-body);
-    font-size: 11px; padding: 4px 12px; border-radius: 8px; transition: all .2s;
+  .onboard-progress {
+    display: flex;
+    gap: 6px;
+    margin-bottom: 28px;
   }
-  .new-session-btn:hover { border-color: var(--terra); color: var(--terra); }
-
-  /* Context indicator */
-  #context-indicator {
-    display: none; align-items: center; gap: 6px;
-    background: var(--terra-pale);
-    border: 1.5px solid rgba(201,107,63,.35);
-    border-radius: 8px; padding: 3px 10px;
-    font-size: 11px; color: var(--terra-dim);
-    max-width: 220px;
+  .onboard-progress .dot {
+    flex: 1;
+    height: 4px;
+    border-radius: 100px;
+    background: var(--border-warm);
+    transition: background .25s;
   }
-  #context-source { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
-  .ctx-clear-btn { background: none; border: none; cursor: pointer; color: var(--terra-dim); font-size: 13px; line-height: 1; padding: 0 2px; flex-shrink: 0; }
-  .ctx-clear-btn:hover { color: var(--terra); }
+  .onboard-progress .dot.active { background: var(--olive); }
+  .onboard-progress .dot.done   { background: var(--olive-soft); }
 
-  .upload-ctx-label {
-    background: none; border: 1.5px solid var(--border);
-    color: var(--muted); cursor: pointer; font-family: var(--font-body);
-    font-size: 11px; padding: 4px 12px; border-radius: 8px; transition: all .2s;
-    display: flex; align-items: center; gap: 4px;
+  .onboard-step { display: none; flex-direction: column; flex: 1; animation: fadeUp .3s ease both; }
+  .onboard-step.active { display: flex; }
+
+  .onboard-eyebrow {
+    color: var(--olive-dim);
+    font-size: 14px;
+    margin-bottom: 8px;
   }
-  .upload-ctx-label:hover { border-color: var(--sky); color: var(--sky); }
-
-  /* ── Layout ── */
-  .main-layout { flex: 1; min-height: 0; display: flex; overflow: hidden; }
-
-  .chat-column {
-    flex: 1; min-height: 0; min-width: 0;
-    display: flex; flex-direction: column; overflow: hidden;
-    background: var(--sand); background-image: var(--grain);
+  .onboard-step h2 {
+    font-family: var(--font-serif);
+    font-weight: 400;
+    font-size: 34px;
+    line-height: 1.08;
+    letter-spacing: -1px;
+    color: var(--ink);
+    margin-bottom: 8px;
   }
-
-  #chat-window {
-    flex: 1; min-height: 0;
-    overflow-y: auto; padding: 28px 24px;
-    display: flex; flex-direction: column; gap: 20px;
-    scroll-behavior: smooth;
-  }
-  #chat-window::-webkit-scrollbar { width: 4px; }
-  #chat-window::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-  /* ── Welcome screen ── */
-  .welcome { margin: auto; text-align: center; padding: 32px 24px; max-width: 480px; animation: fadeUp .6s ease both; }
-
-  .welcome-map {
-    width: 80px; height: 80px;
-    background: linear-gradient(135deg, var(--terra), #e0895a);
-    border-radius: 50%; display: grid; place-items: center;
-    font-size: 36px; margin: 0 auto 20px;
-    box-shadow: 0 8px 32px rgba(201,107,63,.35);
-    animation: float 4s ease-in-out infinite;
-  }
-  @keyframes float { 0%,100%{transform:translateY(0)} 50%{transform:translateY(-6px)} }
-
-  .welcome h2 { font-family: var(--font-serif); font-weight: 700; font-size: 28px; color: var(--ink); margin-bottom: 10px; line-height: 1.2; }
-  .welcome h2 em { font-style: italic; color: var(--terra); }
-  .welcome p { color: var(--muted); font-size: 14px; line-height: 1.75; margin-bottom: 24px; font-weight: 300; }
-
-  .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; }
-  .suggestion {
-    background: var(--white); border: 1.5px solid var(--border);
-    color: var(--brown); padding: 8px 15px; border-radius: 24px;
-    font-size: 12.5px; cursor: pointer; transition: all .2s;
-    display: flex; align-items: center; gap: 5px;
-    font-family: var(--font-body); font-weight: 400;
-  }
-  .suggestion:hover { border-color: var(--terra); color: var(--terra); background: var(--terra-pale); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(201,107,63,.15); }
-
-  /* ── Messages ── */
-  @keyframes fadeUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-
-  .message { display: flex; gap: 12px; max-width: 680px; animation: fadeUp .3s ease both; }
-  .message.user { margin-left: auto; flex-direction: row-reverse; }
-
-  .avatar { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 15px; flex-shrink: 0; }
-  .message.user .avatar { background: var(--terra); color: #fff; font-size: 13px; font-family: var(--font-body); font-weight: 500; }
-  .message.ai .avatar { background: linear-gradient(135deg, #c96b3f, #e0895a); color: #fff; font-size: 16px; box-shadow: 0 2px 8px rgba(201,107,63,.35); }
-
-  .bubble { padding: 13px 17px; border-radius: var(--radius); line-height: 1.75; max-width: calc(100% - 46px); font-size: 14px; }
-  .message.user .bubble { background: var(--terra); color: #fff; border-top-right-radius: 4px; box-shadow: 0 2px 12px rgba(201,107,63,.25); }
-  .message.ai .bubble { background: var(--white); color: var(--ink); border: 1.5px solid var(--border); border-top-left-radius: 4px; box-shadow: 0 2px 12px rgba(0,0,0,.06); }
-  .error-bubble { background: #fff5f5 !important; border-color: #f5c5c5 !important; color: #c03030 !important; }
-
-  /* historical message dim indicator */
-  .message.ai.historical .bubble { opacity: 0.88; }
-
-  .bubble-meta { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
-  .model-tag { font-size: 9px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); border: 1px solid var(--border); padding: 2px 7px; border-radius: 4px; background: var(--sand); font-family: var(--font-body); }
-  .cache-tag { font-size: 9px; letter-spacing: 1px; color: var(--leaf); border: 1px solid #c5dfc9; padding: 2px 7px; border-radius: 4px; background: #eef7f0; }
-
-  .sources { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
-  .source-tag { background: var(--sand); border: 1px solid var(--border); color: var(--muted); font-size: 10px; padding: 3px 9px; border-radius: 12px; display: flex; align-items: center; gap: 4px; font-family: var(--font-body); }
-  .source-tag::before { content: '📍'; font-size: 9px; }
-
-  .typing-indicator { display: flex; gap: 5px; align-items: center; padding: 4px 2px; }
-  .typing-indicator span { width: 7px; height: 7px; border-radius: 50%; background: var(--terra-pale); border: 1.5px solid var(--terra); animation: bounce 1.2s ease infinite; }
-  .typing-indicator span:nth-child(2) { animation-delay: .15s; }
-  .typing-indicator span:nth-child(3) { animation-delay: .3s; }
-  @keyframes bounce { 0%,60%,100% { transform: translateY(0); } 30% { transform: translateY(-7px); } }
-
-  /* ── Input area ── */
-  .input-area { padding: 14px 24px 20px; border-top: 1.5px solid var(--border); background: var(--cream); flex-shrink: 0; }
-
-  /* Context active banner */
-  #context-banner {
-    display: none; align-items: center; gap: 8px;
-    background: var(--terra-pale); border: 1.5px solid rgba(201,107,63,.3);
-    border-radius: 10px; padding: 7px 12px; margin-bottom: 10px;
-    font-size: 11.5px; color: var(--terra-dim);
-  }
-  #context-banner.show { display: flex; }
-  #context-banner-text { flex: 1; }
-  .ctx-banner-clear { background: none; border: none; cursor: pointer; color: var(--terra-dim); font-size: 13px; padding: 0 2px; }
-  .ctx-banner-clear:hover { color: var(--terra); }
-
-  .input-wrapper {
-    display: flex; align-items: flex-end; gap: 10px;
-    background: var(--white); border: 1.5px solid var(--border);
-    border-radius: 14px; padding: 10px 12px;
-    transition: border-color .2s, box-shadow .2s;
-    box-shadow: 0 2px 8px rgba(0,0,0,.05);
-  }
-  .input-wrapper:focus-within { border-color: var(--terra); box-shadow: 0 0 0 3px rgba(201,107,63,.12), 0 2px 8px rgba(0,0,0,.05); }
-  .input-icon { font-size: 18px; flex-shrink: 0; padding-bottom: 2px; opacity: 0.5; }
-
-  #user-input {
-    flex: 1; background: none; border: none; outline: none;
-    color: var(--ink); font-family: var(--font-body); font-size: 14px;
-    resize: none; max-height: 120px; min-height: 22px; line-height: 1.6;
-  }
-  #user-input::placeholder { color: var(--muted); font-weight: 300; }
-
-  #send-btn {
-    background: var(--terra); border: none; cursor: pointer;
-    color: #fff; width: 36px; height: 36px;
-    border-radius: 10px; display: grid; place-items: center;
-    flex-shrink: 0; transition: all .2s; font-size: 16px;
-    box-shadow: 0 2px 8px rgba(201,107,63,.35);
+  .onboard-step p.sub {
+    color: var(--muted);
+    font-size: 14.5px;
+    margin-bottom: 24px;
+    line-height: 1.5;
   }
 
-  #send-btn:hover:not(:disabled) { background: var(--terra-dim); transform: scale(1.05); box-shadow: 0 4px 14px rgba(201,107,63,.4); }
-  #send-btn:disabled { background: var(--border); cursor: not-allowed; box-shadow: none; }
-  #send-btn.stop-mode { background: #c03030; box-shadow: 0 2px 8px rgba(192,48,48,.35); }
-  #send-btn.stop-mode:hover:not(:disabled) { background: #a02525; box-shadow: 0 4px 14px rgba(192,48,48,.4); }
-  .retry-btn { font-size: 13px !important; }
-  .retry-btn:hover:not(:disabled) { border-color: var(--sky); background: #e8f4fd; color: var(--sky); }
-
-  .hint { margin-top: 8px; font-size: 10px; color: var(--muted); text-align: center; letter-spacing: .5px; display: flex; align-items: center; justify-content: center; gap: 12px; font-weight: 300; }
-  .hint-item { display: flex; align-items: center; gap: 4px; }
-  .hint-key { background: var(--white); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; font-size: 9px; font-weight: 500; color: var(--brown); }
-
-  /* ── History panel ── */
-  #history-panel {
-    width: var(--panel-w);
-    border-left: 1.5px solid var(--border);
-    background: var(--cream);
-    display: flex; flex-direction: column;
-    transform: translateX(var(--panel-w));
-    transition: transform .3s ease;
-    flex-shrink: 0; overflow: hidden;
+  .opt-list { display: flex; flex-direction: column; gap: 10px; margin-bottom: 8px; }
+  .opt-row {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: var(--paper-card);
+    border: 1.5px solid var(--border-soft);
+    border-radius: var(--radius-card);
+    padding: 16px 18px;
+    cursor: pointer;
+    transition: all .15s;
+    text-align: left;
+    font-family: inherit;
+    width: 100%;
   }
-  #history-panel.open { transform: translateX(0); }
-
-  .panel-header { padding: 16px 18px 14px; border-bottom: 1.5px solid var(--border); display: flex; align-items: center; flex-shrink: 0; }
-  .panel-header h3 { font-family: var(--font-serif); font-weight: 700; font-size: 16px; color: var(--ink); }
-
-  .panel-tabs { display: flex; gap: 4px; padding: 10px 12px; border-bottom: 1.5px solid var(--border); flex-shrink: 0; }
-  .tab-btn { flex: 1; background: none; border: 1.5px solid var(--border); color: var(--muted); font-family: var(--font-body); font-size: 11px; padding: 5px 0; border-radius: 8px; cursor: pointer; transition: all .2s; letter-spacing: .5px; font-weight: 400; }
-  .tab-btn.active { border-color: var(--terra); color: var(--terra); background: var(--terra-pale); font-weight: 500; }
-
-  .panel-content { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 8px; }
-  .panel-content::-webkit-scrollbar { width: 3px; }
-  .panel-content::-webkit-scrollbar-thumb { background: var(--border); border-radius: 4px; }
-
-  .panel-empty { color: var(--muted); font-size: 13px; text-align: center; margin: auto; line-height: 1.9; font-weight: 300; }
-  .msg-count { font-size: 10px; color: var(--muted); text-align: center; padding: 2px 0 6px; letter-spacing: .5px; font-weight: 300; }
-
-  .hist-msg { border-radius: 10px; padding: 10px 12px; font-size: 12px; line-height: 1.65; border: 1.5px solid var(--border); }
-  .hist-msg.user { background: var(--terra-pale); border-color: rgba(201,107,63,.3); }
-  .hist-msg.assistant { background: var(--white); }
-  .hist-msg .role-label { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--muted); margin-bottom: 5px; font-weight: 500; }
-  .hist-msg.user .role-label { color: var(--terra-dim); }
-  .hist-msg .msg-text { color: var(--ink); word-break: break-word; }
-
-  .summary-box {
-    background: linear-gradient(135deg, #eef7f0, #f5f9f6);
-    border: 1.5px solid #c5dfc9; border-radius: 10px;
-    padding: 14px; font-size: 12px; line-height: 1.85; color: #2c5c39;
+  .opt-row:hover { border-color: var(--border-warm); transform: translateY(-1px); }
+  .opt-row.selected { border-color: var(--olive); background: var(--olive-pale); }
+  .opt-row .opt-emoji {
+    width: 44px; height: 44px;
+    border-radius: 12px;
+    background: var(--paper-warm);
+    border: 1px solid var(--border-soft);
+    display: grid; place-items: center;
+    font-size: 20px;
+    flex-shrink: 0;
   }
-  .summary-box .sum-label { font-size: 9px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--leaf); margin-bottom: 8px; font-weight: 500; display: block; }
-
-  .download-btn {
-    width: 100%; background: none; border: 1.5px solid #c5dfc9;
-    color: var(--leaf); font-family: var(--font-body); font-size: 11px;
-    padding: 8px; border-radius: 8px; cursor: pointer; transition: all .2s;
-    letter-spacing: .5px; display: flex; align-items: center; justify-content: center; gap: 6px;
+  .opt-row.selected .opt-emoji { background: var(--white); border-color: var(--olive-soft); }
+  .opt-text { flex: 1; min-width: 0; }
+  .opt-title { font-size: 15.5px; font-weight: 500; color: var(--ink); line-height: 1.25; }
+  .opt-desc  { font-size: 12.5px; color: var(--muted); margin-top: 2px; }
+  .opt-check {
+    width: 22px; height: 22px;
+    border-radius: 50%;
+    border: 1.5px solid var(--border-warm);
+    display: grid; place-items: center;
+    flex-shrink: 0;
+    color: transparent;
+    font-size: 12px;
+    transition: all .15s;
   }
-  .download-btn:hover { background: #eef7f0; border-color: var(--leaf); }
+  .opt-row.selected .opt-check { background: var(--olive); border-color: var(--olive); color: #fff; }
 
-  .summary-empty { color: var(--muted); font-size: 12px; text-align: center; padding: 20px 0; line-height: 1.9; font-weight: 300; }
-
-  .refresh-btn {
-    width: 100%; background: none; border: 1.5px solid var(--border);
-    color: var(--muted); font-family: var(--font-body); font-size: 11px;
-    padding: 8px; border-radius: 8px; cursor: pointer; transition: all .2s; letter-spacing: .5px;
+  .opt-chips { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 8px; }
+  .opt-chip {
+    background: var(--paper-card);
+    border: 1.5px solid var(--border-soft);
+    border-radius: var(--radius-chip);
+    padding: 10px 16px;
+    font-size: 13.5px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: all .15s;
+    font-family: inherit;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
   }
-  .refresh-btn:hover { border-color: var(--terra); color: var(--terra); }
+  .opt-chip:hover { border-color: var(--border-warm); }
+  .opt-chip.selected { background: var(--olive-pale); border-color: var(--olive); color: var(--olive-dim); }
+  .opt-chip .chip-emoji { font-size: 15px; }
 
-  /* ── Session dropdown ── */
-  #session-dropdown {
-    display: none; position: absolute; top: 34px; left: 0;
-    z-index: 100; background: var(--white);
-    border: 1.5px solid var(--border); border-radius: 10px;
-    min-width: 270px; max-height: 220px; overflow-y: auto;
-    box-shadow: 0 8px 28px rgba(0,0,0,.12);
+  .opt-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+  .opt-grid .opt-cell {
+    background: var(--paper-card);
+    border: 1.5px solid var(--border-soft);
+    border-radius: 12px;
+    padding: 14px 8px;
+    text-align: center;
+    cursor: pointer;
+    transition: all .15s;
+    font-family: inherit;
+  }
+  .opt-grid .opt-cell:hover { border-color: var(--border-warm); }
+  .opt-grid .opt-cell.selected { background: var(--olive-pale); border-color: var(--olive); }
+  .opt-grid .cur-code { font-size: 15px; font-weight: 600; color: var(--ink); }
+  .opt-grid .cur-name { font-size: 10.5px; color: var(--muted); margin-top: 2px; }
+
+  .onboard-nav {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-top: 28px;
+    padding-top: 20px;
+    border-top: 1px solid var(--border-soft);
+  }
+  .onboard-skip {
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-family: inherit;
+    font-size: 13.5px;
+    cursor: pointer;
+    padding: 8px 4px;
+  }
+  .onboard-skip:hover { color: var(--ink-soft); text-decoration: underline; }
+  .onboard-next {
+    margin-left: auto;
+    background: var(--olive);
+    color: #fff;
+    border: none;
+    border-radius: 100px;
+    padding: 12px 28px;
+    font-family: inherit;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .onboard-next:hover { background: var(--olive-dim); transform: translateX(2px); }
+  .onboard-back {
+    background: none;
+    border: 1.5px solid var(--border-soft);
+    color: var(--ink-soft);
+    border-radius: 100px;
+    padding: 11px 20px;
+    font-family: inherit;
+    font-size: 13.5px;
+    cursor: pointer;
+    transition: all .15s;
+  }
+  .onboard-back:hover { border-color: var(--border-warm); }
+
+  .onboard-brand {
+    font-family: var(--font-serif);
+    font-size: 24px;
+    color: var(--ink);
+    text-align: center;
+    margin-bottom: 32px;
   }
 
-  .session-row {
-    display: flex; align-items: center; justify-content: space-between;
-    padding: 8px 12px; border-bottom: 1px solid var(--border); gap: 6px; transition: background .15s;
+  .pref-summary { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .pref-tag {
+    font-size: 11.5px;
+    color: var(--olive-dim);
+    background: var(--olive-pale);
+    border: 1px solid var(--olive-soft);
+    padding: 4px 10px;
+    border-radius: var(--radius-chip);
   }
-  .session-row:hover { background: var(--sand); }
-  .session-row:last-child { border-bottom: none; }
+  .pref-tag.empty { color: var(--muted); background: var(--paper-warm); border-color: var(--border-soft); }
 
-  .session-name { flex: 1; font-size: 12px; cursor: pointer; color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 120px; }
+  /* ============================================================
+     Responsive
+     ============================================================ */
+  @media (max-width: 900px) {
+    .nav-inner { gap: 12px; padding: 0 18px; }
+    .brand { font-size: 22px; }
+    .tab-pills { margin: 0; }
+    .tab-btn { padding: 7px 13px; font-size: 12.5px; }
+    .tab-btn svg { width: 15px; height: 15px; }
 
-  .session-actions { display: flex; gap: 2px; flex-shrink: 0; }
+    .main { padding: 22px 18px 60px; }
 
-  .sess-action-btn {
-    background: none; border: none; color: var(--muted); cursor: pointer;
-    font-size: 12px; padding: 2px 5px; border-radius: 4px; transition: all .15s; line-height: 1;
+    .greeting-card { padding: 32px 28px; min-height: 250px; }
+    .greeting-card h1 { font-size: 38px; }
+    .greeting-content { max-width: 60%; }
+    .skyline-art { width: 45%; }
+
+    .alert-row { grid-template-columns: 1fr; }
+    .stat-grid { grid-template-columns: repeat(2, 1fr); }
+    .mood-grid { grid-template-columns: 1fr; gap: 12px; }
+
+    .ask-headline { font-size: 40px; }
+    .suggestion-grid { grid-template-columns: 1fr; }
+
+    .global-hero { padding: 32px 28px; min-height: 220px; }
+    .global-hero h1 { font-size: 38px; }
+    .news-grid { grid-template-columns: 1fr; }
   }
-  .sess-action-btn:hover { background: var(--terra-pale); color: var(--terra); }
-  .sess-action-btn.ctx-btn:hover { background: #e8f4fd; color: var(--sky); }
 
-  .rename-input {
-    flex: 1; background: var(--white); border: 1.5px solid var(--terra);
-    border-radius: 6px; padding: 3px 7px;
-    font-family: var(--font-body); font-size: 12px; color: var(--ink);
-    outline: none; min-width: 0;
+  @media (max-width: 560px) {
+    :root { --nav-h: 64px; }
+    .brand { font-size: 20px; }
+    .tab-btn span.label-text { display: none; }
+    .tab-btn { padding: 8px 12px; }
+
+    .onboard-card { padding: 28px 20px; }
+    .onboard-step h2 { font-size: 28px; }
+    .opt-grid { grid-template-columns: repeat(3, 1fr); }
+
+    .greeting-content { max-width: 100%; }
+    .greeting-card h1 { font-size: 32px; }
+    .skyline-art { opacity: .35; }
+
+    .ask-headline { font-size: 34px; }
+    .global-hero h1 { font-size: 32px; }
+    .global-hero .hero-content { max-width: 100%; }
+
+    .news-thumb { width: 90px; }
+    .chat-bubble { max-width: 92%; }
   }
-
-  /* ── Feedback ── */
-  .feedback-row { display: flex; align-items: center; gap: 8px; margin-top: 11px; padding-top: 10px; border-top: 1px solid var(--border); }
-  .feedback-label { font-size: 10px; color: var(--muted); letter-spacing: .5px; text-transform: uppercase; font-weight: 400; }
-  .fb-btn { background: none; border: 1.5px solid var(--border); color: var(--muted); font-size: 14px; cursor: pointer; width: 30px; height: 30px; border-radius: 8px; display: grid; place-items: center; transition: all .15s; }
-  .fb-btn:hover:not(:disabled) { border-color: var(--terra); background: var(--terra-pale); }
-  .fb-btn.selected-up   { border-color: var(--leaf); background: #eef7f0; }
-  .fb-btn.selected-down { border-color: #c96b6b; background: #fff0f0; }
-  .fb-btn:disabled { opacity: .4; cursor: not-allowed; }
-  .fb-thanks { font-size: 11px; color: var(--leaf); margin-left: 4px; opacity: 0; transition: opacity .3s; font-weight: 500; }
-  .fb-thanks.show { opacity: 1; }
-
-  /* ── Warning / confidence ── */
-  .warning-bubble { background: #fffbf0 !important; border-color: #e8d5a0 !important; color: #7a5c1e !important; }
-  .warning-bubble .confidence-note { display: block; margin-top: 8px; font-size: 10px; color: #b8930c; letter-spacing: .5px; }
-
-  /* ── Markdown ── */
-  .md-content p { margin: 0 0 10px; line-height: 1.75; }
-  .md-content p:last-child { margin-bottom: 0; }
-  .md-content ul, .md-content ol { padding-left: 20px; margin: 6px 0; }
-  .md-content li { margin: 4px 0; line-height: 1.65; }
-  .md-content strong { color: var(--terra); font-weight: 600; }
-  .md-content em { color: var(--brown); }
-  .md-content code { background: var(--sand); padding: 1px 5px; border-radius: 4px; font-size: 12px; color: var(--sky); font-family: monospace; }
-  .md-content pre { background: var(--sand); padding: 12px; border-radius: 8px; overflow-x: auto; margin: 8px 0; border: 1.5px solid var(--border); }
-  .md-content pre code { background: none; padding: 0; }
-  .md-content table { border-collapse: collapse; width: 100%; margin: 10px 0; font-size: 13px; }
-  .md-content th { border: 1px solid var(--border); padding: 7px 11px; background: var(--sand); color: var(--brown); text-align: left; font-weight: 600; }
-  .md-content td { border: 1px solid var(--border); padding: 7px 11px; }
-  .md-content tr:nth-child(even) td { background: var(--cream); }
-  .md-content blockquote { border-left: 3px solid var(--terra); padding: 4px 14px; margin: 8px 0; color: var(--muted); font-style: italic; }
-  .md-content h1 { font-family: var(--font-serif); font-weight: 700; font-size: 18px; margin: 10px 0 5px; color: var(--ink); }
-  .md-content h2 { font-family: var(--font-serif); font-size: 16px; margin: 10px 0 4px; color: var(--ink); }
-  .md-content h3 { font-size: 14px; font-weight: 600; margin: 8px 0 3px; color: var(--terra); }
-  .md-content hr { border: none; border-top: 1.5px solid var(--border); margin: 12px 0; }
-  .md-content a { color: var(--terra); text-decoration: underline; }
-
-  /* ── Stat pills ── */
-  .stat-row { display: flex; gap: 10px; justify-content: center; margin-bottom: 20px; flex-wrap: wrap; }
-  .stat-pill { background: var(--white); border: 1.5px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 11.5px; color: var(--brown); display: flex; align-items: center; gap: 5px; font-weight: 400; box-shadow: 0 2px 8px rgba(0,0,0,.05); }
 </style>
 </head>
 <body>
 
-<header>
-  <div class="logo-wrap">
-    <div class="logo-icon">🗺️</div>
-    <div>
-      <div class="logo-text">TiranaTips</div>
-      <span class="logo-sub">City Travel Guide</span>
+<!-- Onboarding overlay -->
+<div class="onboard-overlay" id="onboard-overlay">
+  <div class="onboard-card">
+    <div class="onboard-brand">TiranaTips</div>
+    <div class="onboard-progress" id="onboard-progress">
+      <div class="dot active"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+      <div class="dot"></div>
+    </div>
+
+    <div class="onboard-step active" data-step="0">
+      <div class="onboard-eyebrow">Let's personalize</div>
+      <h2>What brings you<br>to Tirana?</h2>
+      <p class="sub">We'll tune recommendations to fit. You can change this anytime.</p>
+      <div class="opt-list" id="onboard-modes"></div>
+    </div>
+
+    <div class="onboard-step" data-step="1">
+      <div class="onboard-eyebrow">Your style</div>
+      <h2>What's your<br>price range?</h2>
+      <p class="sub">Cafés, restaurants, activities and events will lead with options that match.</p>
+      <div class="opt-list" id="onboard-prices"></div>
+    </div>
+
+    <div class="onboard-step" data-step="2">
+      <div class="onboard-eyebrow">Your interests</div>
+      <h2>What do you<br>care about?</h2>
+      <p class="sub">Pick a few. Your picks lead the way — the rest won't crowd them out.</p>
+      <div class="opt-chips" id="onboard-interests"></div>
+    </div>
+
+    <div class="onboard-step" data-step="3">
+      <div class="onboard-eyebrow">Last one</div>
+      <h2>Preferred<br>currency?</h2>
+      <p class="sub">Prices will be shown in your currency where we can convert them.</p>
+      <div class="opt-grid" id="onboard-currencies"></div>
+    </div>
+
+    <div class="onboard-nav">
+      <button class="onboard-back" id="onboard-back" onclick="onboardBack()" style="display:none;">Back</button>
+      <button class="onboard-skip" onclick="onboardSkip()">Skip for now</button>
+      <button class="onboard-next" id="onboard-next" onclick="onboardNext()">Continue</button>
     </div>
   </div>
+</div>
 
-  <div class="model-selector" style="margin-left: 20px;">
-    <button class="model-pill active" onclick="selectModel(this,'auto','⚡ Auto')">⚡ Auto</button>
-    <button class="model-pill" onclick="selectModel(this,'meta-llama/llama-4-scout','Llama 4 Scout')">Llama 4 Scout</button>
-    <button class="model-pill" onclick="selectModel(this,'mistralai/ministral-8b-2512','Ministral 8B')">Ministral 8B</button>
-    <button class="model-pill" onclick="selectModel(this,'deepseek/deepseek-chat','DeepSeek V3')">DeepSeek V3</button>
-    <button class="model-pill" onclick="selectModel(this,'google/gemini-flash-1.5-8b','Gemini Flash 8B')">Gemini Flash</button>
-  </div>
-
-  <div class="header-right">
-    <div class="city-badge">
-      <div class="city-badge-dot"></div>
-      <span id="status-text">Live Guide</span>
+<!-- Top navigation -->
+<header class="top-nav">
+  <div class="nav-inner">
+    <div class="brand">TiranaTips</div>
+    <nav class="tab-pills">
+      <button class="tab-btn" data-tab="today" onclick="switchTab('today')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M3 11l9-7 9 7v9a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2v-9z" stroke-linejoin="round"/>
+        </svg>
+        <span class="label-text">Today</span>
+      </button>
+      <button class="tab-btn active" data-tab="ask" onclick="switchTab('ask')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M21 11.5a8.4 8.4 0 0 1-9 8.4 8.6 8.6 0 0 1-3.7-.8L3 21l1.9-5.3A8.4 8.4 0 1 1 21 11.5z" stroke-linejoin="round"/>
+        </svg>
+        <span class="label-text">Ask Tirana</span>
+      </button>
+      <button class="tab-btn" data-tab="global" onclick="switchTab('global')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="9"/>
+          <ellipse cx="12" cy="12" rx="4" ry="9"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+        </svg>
+        <span class="label-text">Global View</span>
+      </button>
+    </nav>
+    <div class="lang-pill" title="Reply language">
+      <select id="lang-pill-select" onchange="setLanguage(this.value)" aria-label="Reply language">
+        <option value="auto">Auto</option>
+        <option value="en">EN</option>
+        <option value="sq">SQ</option>
+        <option value="it">IT</option>
+        <option value="de">DE</option>
+        <option value="fr">FR</option>
+        <option value="es">ES</option>
+        <option value="tr">TR</option>
+        <option value="el">EL</option>
+        <option value="ru">RU</option>
+        <option value="zh">ZH</option>
+        <option value="ar">AR</option>
+      </select>
+      <span class="caret">▾</span>
     </div>
-    <button class="hist-toggle" id="hist-btn" onclick="togglePanel()">
-      📋 History <span class="badge" id="msg-badge">0</span>
+    <button class="profile-btn" onclick="openDrawer()" aria-label="Open settings">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="8" r="4"/>
+        <path d="M4 21c0-4.4 3.6-8 8-8s8 3.6 8 8" stroke-linecap="round"/>
+      </svg>
     </button>
   </div>
 </header>
 
-<!-- ── Session bar ── -->
-<div class="session-bar">
-  <label>Session</label>
-  <div style="position:relative;display:flex;align-items:center;gap:6px">
-    <!-- Hidden real ID field -->
-    <input type="text" id="session-id" style="display:none">
-    <!-- Visible, click-to-rename label -->
-    <span id="session-label"
-          onclick="startSessionLabelEdit()"
-          title="Click to rename session"></span>
-    <button class="new-session-btn" onclick="loadSessions()" title="Browse sessions" style="padding:4px 10px;">▾</button>
-    <div id="session-dropdown"></div>
-  </div>
-  <button class="new-session-btn" onclick="newSession()">+ New</button>
+<main class="main">
 
-  <!-- Context indicator: shown when a past summary is injected -->
-  <div id="context-indicator">
-    📎 <span id="context-source">Context</span>
-    <button class="ctx-clear-btn" onclick="clearContext()" title="Remove injected context">✕</button>
-  </div>
+  <!-- TAB 1 — TODAY -->
+  <section class="tab-panel" id="panel-today">
 
-  <!-- Upload a saved .txt summary as context -->
-  <label class="upload-ctx-label" title="Upload a downloaded summary .txt as context for the next messages">
-    📁 Load summary
-    <input type="file" accept=".txt" onchange="loadContextFile(event)" style="display:none">
-  </label>
-</div>
-
-<!-- ── Main layout ── -->
-<div class="main-layout">
-  <div class="chat-column">
-    <div id="chat-window">
-      <div class="welcome" id="welcome-screen">
-        <div class="welcome-map">🧭</div>
-        <div class="stat-row">
-          <div class="stat-pill">🏛️ Landmarks</div>
-          <div class="stat-pill">🍽️ Food & Drink</div>
-          <div class="stat-pill">🚶 Hidden Gems</div>
-          <div class="stat-pill">🕐 Opening Hours</div>
-        </div>
-        <h2>Your <em>personal</em><br>city companion</h2>
-        <p>Ask me anything about the city — from must-see spots and local eats to transport tips and off-the-beaten-path adventures.</p>
-        <div class="suggestions">
-          <div class="suggestion" onclick="fillAndSend(this)">🏛️ Top landmarks to visit</div>
-          <div class="suggestion" onclick="fillAndSend(this)">🍕 Best local food spots</div>
-          <div class="suggestion" onclick="fillAndSend(this)">🚌 How to get around</div>
-          <div class="suggestion" onclick="fillAndSend(this)">🌅 Where to watch the sunset</div>
-          <div class="suggestion" onclick="fillAndSend(this)">🛍️ Best markets & shopping</div>
-          <div class="suggestion" onclick="fillAndSend(this)">💡 Tips for first-time visitors</div>
+    <div class="greeting-card">
+      <div class="greeting-content">
+        <h1 id="greeting-title">Good morning, Tirana</h1>
+        <div class="date-line" id="date-line">Sunday, 31 May · Partly cloudy</div>
+        <div class="greeting-pills">
+          <span class="pill">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4" fill="#d8b870" stroke="none"/><path d="M12 2v2M12 20v2M2 12h2M20 12h2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4" stroke="#d8b870" stroke-linecap="round"/></svg>
+            <span id="temp-value">28°C</span>
+          </span>
+          <span class="pill pill-olive">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 17c-2-4 0-9 5-11 5-2 9 1 9 1s-1 9-6 11-7-1-8-1z"/><path d="M7 17l5-7" stroke-linecap="round"/></svg>
+            Active city
+          </span>
         </div>
       </div>
+      <svg class="skyline-art" viewBox="0 0 280 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M0 150 L40 100 L70 130 L110 80 L150 120 L180 90 L220 130 L280 110 L280 220 L0 220 Z" fill="#c9b894" opacity=".5"/>
+        <path d="M0 160 L60 130 L90 150 L130 110 L170 140 L210 120 L280 150 L280 220 L0 220 Z" fill="#a89878" opacity=".4"/>
+        <rect x="40" y="140" width="40" height="80" fill="#d8c4a0" opacity=".7"/>
+        <rect x="85" y="125" width="35" height="95" fill="#c9b594" opacity=".7"/>
+        <rect x="195" y="135" width="32" height="85" fill="#d8c4a0" opacity=".7"/>
+        <rect x="230" y="120" width="28" height="100" fill="#c9b594" opacity=".7"/>
+        <rect x="125" y="155" width="35" height="65" fill="#e0cca0"/>
+        <path d="M125 155 Q142 138 160 155" fill="#c9a878"/>
+        <rect x="118" y="100" width="6" height="120" fill="#c9a878"/>
+        <circle cx="121" cy="100" r="4" fill="#c9a878"/>
+        <path d="M119 96 L121 92 L123 96 Z" fill="#c9a878"/>
+        <rect x="165" y="60" width="22" height="160" fill="#d8b88a"/>
+        <rect x="163" y="58" width="26" height="6" fill="#c9a87a"/>
+        <circle cx="176" cy="90" r="8" fill="#fff8e8" stroke="#a08560" stroke-width="1.5"/>
+        <line x1="176" y1="90" x2="176" y2="84" stroke="#5a4a30" stroke-width="1.2" stroke-linecap="round"/>
+        <line x1="176" y1="90" x2="180" y2="92" stroke="#5a4a30" stroke-width="1.2" stroke-linecap="round"/>
+        <path d="M165 60 L176 35 L187 60 Z" fill="#a08560"/>
+        <circle cx="176" cy="32" r="2" fill="#a08560"/>
+        <g transform="translate(80, 170)">
+          <path d="M0 30 L12 30 L18 20 L25 8 L30 4 L35 8 L40 14 L42 24 L45 30 L48 30 L48 38 L0 38 Z" fill="#5a4a30" opacity=".85"/>
+          <circle cx="30" cy="4" r="3" fill="#5a4a30" opacity=".85"/>
+        </g>
+        <ellipse cx="20" cy="195" rx="20" ry="18" fill="#7d8a5c" opacity=".7"/>
+        <ellipse cx="50" cy="200" rx="14" ry="13" fill="#5e6b40" opacity=".75"/>
+        <ellipse cx="265" cy="200" rx="18" ry="16" fill="#7d8a5c" opacity=".7"/>
+        <ellipse cx="245" cy="180" rx="6" ry="22" fill="#5e6b40" opacity=".8"/>
+      </svg>
     </div>
 
-    <div class="input-area">
-      <!-- Context active banner (shown above input when context is injected) -->
-      <div id="context-banner">
-        <span id="context-banner-text">📎 Context injected from a previous session</span>
-        <button class="ctx-banner-clear" onclick="clearContext()" title="Remove context">✕</button>
+    <div class="section-head">
+      <h2>Right now</h2>
+      <span class="meta"><span class="live-dot"></span>Live updates</span>
+    </div>
+    <div class="alert-row">
+      <div class="alert-card">
+        <div class="alert-icon icon-rain">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#5e6b40" stroke-width="1.8">
+            <path d="M6 14a4 4 0 0 1 .5-7.95A5.5 5.5 0 0 1 17.4 7 4 4 0 0 1 17 15H6z" fill="#a8b89a"/>
+            <line x1="9" y1="18" x2="8" y2="21" stroke-linecap="round"/>
+            <line x1="13" y1="18" x2="12" y2="21" stroke-linecap="round"/>
+            <line x1="17" y1="18" x2="16" y2="21" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="alert-text">
+          <div class="alert-title">Rain expected after 5pm</div>
+          <div class="alert-sub">Best to carry an umbrella</div>
+        </div>
+        <span class="chevron">›</span>
       </div>
-
-      <div class="input-wrapper">
-        <span class="input-icon">✈️</span>
-        <textarea id="user-input" rows="1" placeholder="Ask anything about the city…" maxlength="1000"></textarea>
-        <button id="send-btn" onclick="sendMessage()">➤</button>
+      <div class="alert-card">
+        <div class="alert-icon icon-music">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#a04f28" stroke-width="1.8">
+            <path d="M9 18V5l12-2v13" stroke-linejoin="round"/>
+            <circle cx="6" cy="18" r="3" fill="#e8a880"/>
+            <circle cx="18" cy="16" r="3" fill="#e8a880"/>
+          </svg>
+        </div>
+        <div class="alert-text">
+          <div class="alert-title">New event near Skanderbeg Square</div>
+          <div class="alert-sub">Live music starts at 9pm</div>
+        </div>
+        <span class="chevron">›</span>
       </div>
-      <div class="hint">
-        <span class="hint-item"><span class="hint-key">Enter</span> to send</span>
-        <span class="hint-item"><span class="hint-key">Shift</span>+<span class="hint-key">Enter</span> for new line</span>
+      <div class="alert-card">
+        <div class="alert-icon icon-cone">
+          <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="#8a6520" stroke-width="1.8">
+            <path d="M12 3L7 20h10z" fill="#d8b870"/>
+            <line x1="9" y1="11" x2="15" y2="11" stroke-linecap="round"/>
+            <line x1="6" y1="20" x2="18" y2="20" stroke-linecap="round" stroke-width="2"/>
+          </svg>
+        </div>
+        <div class="alert-text">
+          <div class="alert-title">"Ismail Qemali" partially closed</div>
+          <div class="alert-sub">Avoid area until 7pm</div>
+        </div>
+        <span class="chevron">›</span>
       </div>
     </div>
+
+    <div class="section-head"><h2>City pulse</h2></div>
+    <div class="stat-grid">
+      <div class="stat-card">
+        <div class="stat-label">Exchange</div>
+        <div class="stat-value">108.4</div>
+        <div class="stat-sub">ALL/EUR</div>
+        <svg class="sparkline" viewBox="0 0 80 28" preserveAspectRatio="none">
+          <polyline points="0,22 12,20 22,21 32,18 44,15 56,12 68,9 80,4"
+                    fill="none" stroke="#7d8a5c" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Airport</div>
+        <div class="stat-value">On time</div>
+        <div class="stat-sub">TIA departures</div>
+        <div class="stat-foot">
+          <span class="stat-icon-bubble" style="background:var(--sage-soft);color:var(--olive-dim);">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M21 14l-9-5L3 14v2l8-3v6l-2 1v1l3-1 3 1v-1l-2-1v-6l8 3v-2z"/></svg>
+          </span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Traffic</div>
+        <div class="stat-value">Busy center</div>
+        <div class="stat-sub">Moderate flow</div>
+        <div class="stat-foot">
+          <span class="stat-icon-bubble" style="background:var(--butter-soft);color:#8a6520;">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor"><path d="M5 11l1.5-4.5h11L19 11M7.5 17a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zm9 0a1.5 1.5 0 1 1 0-3 1.5 1.5 0 0 1 0 3zM5 17v-5h14v5h-2.5a3 3 0 0 0-6 0H9a3 3 0 0 0-3-3v3H5z"/></svg>
+          </span>
+        </div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Events</div>
+        <div class="stat-value">3 tonight</div>
+        <div class="stat-sub">Live &amp; local</div>
+        <div class="stat-foot">
+          <span class="stat-icon-bubble" style="background:var(--terra-soft);color:var(--terra-dim);">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/><circle cx="12" cy="14" r="1.5" fill="currentColor"/></svg>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-head"><h2>Today's mood</h2></div>
+    <div class="mood-card">
+      <svg class="mood-leaf" viewBox="0 0 60 130" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M30 5 Q28 60 30 125" stroke="#7d8a5c" stroke-width="1.5" stroke-linecap="round"/>
+        <ellipse cx="20" cy="30" rx="11" ry="5" fill="#7d8a5c" opacity=".85" transform="rotate(-35 20 30)"/>
+        <ellipse cx="40" cy="45" rx="11" ry="5" fill="#7d8a5c" opacity=".85" transform="rotate(40 40 45)"/>
+        <ellipse cx="18" cy="60" rx="12" ry="5" fill="#7d8a5c" opacity=".85" transform="rotate(-30 18 60)"/>
+        <ellipse cx="42" cy="78" rx="12" ry="5" fill="#7d8a5c" opacity=".85" transform="rotate(35 42 78)"/>
+        <ellipse cx="20" cy="95" rx="10" ry="4" fill="#7d8a5c" opacity=".85" transform="rotate(-30 20 95)"/>
+        <ellipse cx="38" cy="110" rx="9" ry="4" fill="#7d8a5c" opacity=".85" transform="rotate(40 38 110)"/>
+      </svg>
+      <div class="mood-body">
+        <div class="mood-label">Tirana Mood</div>
+        <div class="mood-title">Calm morning — busy evening expected</div>
+        <div class="mood-grid">
+          <div><h4>Best areas</h4><p>Blloku, Pazari i Ri, Grand Park</p></div>
+          <div><h4>What to avoid</h4><p>City Center traffic after 5pm</p></div>
+          <div><h4>Mood index</h4><p>Relaxed · sociable</p></div>
+        </div>
+      </div>
+    </div>
+
+  </section>
+
+  <!-- TAB 2 — ASK TIRANA -->
+  <section class="tab-panel active" id="panel-ask">
+    <div class="ask-wrap">
+
+      <div class="ask-header">
+        <div class="ask-eyebrow">Ask Tirana</div>
+        <h1 class="ask-headline">What do you need to know?</h1>
+        <p class="ask-sub">Ask anything about Tirana <span class="dash">—</span> like a local friend.</p>
+      </div>
+
+      <div class="chip-row" id="chip-row">
+        <button class="chip" data-prompt="Recommend the best food spots in Tirana right now.">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 2v8M5 2v4a2 2 0 0 0 2 2h0a2 2 0 0 0 2-2V2M9 2v8M17 2c-2 0-3 2-3 4s1 4 3 4v8" stroke-linecap="round"/></svg>
+          Food
+        </button>
+        <button class="chip" data-prompt="What's the best way to get around Tirana?">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="4" y="5" width="16" height="13" rx="2"/><circle cx="8" cy="18" r="1.5" fill="currentColor"/><circle cx="16" cy="18" r="1.5" fill="currentColor"/><path d="M4 11h16M8 8h8"/></svg>
+          Transport
+        </button>
+        <button class="chip" data-prompt="What events are happening in Tirana this week?">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 9h18M8 3v4M16 3v4"/><path d="m11 14 1 1 2-2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+          Events
+        </button>
+        <button class="chip" data-prompt="Where can I exchange money in Tirana?">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="7" width="20" height="11" rx="2"/><circle cx="12" cy="12.5" r="2"/><path d="M6 11v3M18 11v3"/></svg>
+          Money
+        </button>
+        <button class="chip" data-prompt="Is Tirana a safe city for tourists? Any neighborhoods to avoid?">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 2 4 6v6c0 5 3.5 8.5 8 10 4.5-1.5 8-5 8-10V6l-8-4z"/></svg>
+          Safety
+        </button>
+        <button class="chip" data-prompt="Where should I watch the sunset in Tirana?">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="14" r="4"/><line x1="3" y1="20" x2="21" y2="20"/><line x1="12" y1="3" x2="12" y2="6"/><line x1="5" y1="9" x2="7" y2="11"/><line x1="19" y1="9" x2="17" y2="11"/></svg>
+          Views
+        </button>
+      </div>
+
+      <div class="suggestion-grid" id="suggestion-grid">
+        <button class="suggest-card" data-prompt="Where's the best coffee near Blloku?">
+          <span class="suggest-icon bg-cream">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 8h13v6a4 4 0 0 1-4 4H8a4 4 0 0 1-4-4V8z"/><path d="M17 10h2a2 2 0 0 1 0 4h-2"/><path d="M8 4c0 1-1 1-1 2s1 1 1 2M12 4c0 1-1 1-1 2s1 1 1 2"/></svg>
+          </span>
+          <span class="suggest-text">Good coffee near Blloku?</span>
+          <span class="chevron">›</span>
+        </button>
+        <button class="suggest-card featured" data-prompt="What are the best restaurants near Blloku for modern Albanian food?">
+          <span class="suggest-icon bg-terra">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 14a8 8 0 0 1 16 0"/><line x1="2" y1="14" x2="22" y2="14"/><line x1="2" y1="18" x2="22" y2="18"/><line x1="12" y1="10" x2="12" y2="6"/><circle cx="12" cy="4" r="1.5" fill="currentColor"/></svg>
+          </span>
+          <span class="suggest-text">Best restaurants near Blloku?</span>
+          <span class="chevron">›</span>
+        </button>
+        <button class="suggest-card" data-prompt="When is the best time to go up Dajti Mountain?">
+          <span class="suggest-icon bg-sage">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 20 9 9l4 6 2-3 6 8z" stroke-linejoin="round"/></svg>
+          </span>
+          <span class="suggest-text">Best time to go to Dajti?</span>
+          <span class="chevron">›</span>
+        </button>
+        <button class="suggest-card" data-prompt="Where can I exchange money safely in Tirana?">
+          <span class="suggest-icon bg-olive">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="2" y="7" width="20" height="11" rx="2"/><circle cx="12" cy="12.5" r="2.5"/></svg>
+          </span>
+          <span class="suggest-text">Where can I exchange money?</span>
+          <span class="chevron">›</span>
+        </button>
+      </div>
+
+      <div id="chat-window"></div>
+
+      <div class="ask-input-wrap">
+        <div class="context-banner" id="context-banner">
+          <span class="ctx-text" id="context-banner-text">📎 Context loaded</span>
+          <button onclick="clearContext()" aria-label="Remove context">✕</button>
+        </div>
+        <div class="ask-input">
+          <span class="chat-icon">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M3 12a8 8 0 1 1 4 6.9L3 20l1-4 -1-4z"/></svg>
+          </span>
+          <textarea id="user-input" rows="1" placeholder="Ask anything about Tirana…" maxlength="1000"></textarea>
+          <button id="send-btn" onclick="sendMessage()" aria-label="Send">
+            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4l17.5-8.5L3.4 3.4v6.6l12 1.9-12 1.9z"/></svg>
+          </button>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- TAB 3 — GLOBAL VIEW -->
+  <section class="tab-panel" id="panel-global">
+
+    <div class="global-hero">
+      <div class="world-bg"></div>
+      <div class="hero-content">
+        <div class="eyebrow">International lens</div>
+        <h1>Tirana, globally</h1>
+        <p>How the world sees your city today</p>
+      </div>
+      <svg class="skyline-art" viewBox="0 0 280 220" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+        <path d="M0 150 L40 100 L70 130 L110 80 L150 120 L180 90 L220 130 L280 110 L280 220 L0 220 Z" fill="#c9b894" opacity=".4"/>
+        <rect x="40" y="140" width="40" height="80" fill="#d8c4a0" opacity=".7"/>
+        <rect x="85" y="125" width="35" height="95" fill="#c9b594" opacity=".7"/>
+        <rect x="195" y="135" width="32" height="85" fill="#d8c4a0" opacity=".7"/>
+        <rect x="230" y="120" width="28" height="100" fill="#c9b594" opacity=".7"/>
+        <rect x="125" y="155" width="35" height="65" fill="#e0cca0"/>
+        <path d="M125 155 Q142 138 160 155" fill="#c9a878"/>
+        <rect x="118" y="100" width="6" height="120" fill="#c9a878"/>
+        <circle cx="121" cy="100" r="4" fill="#c9a878"/>
+        <rect x="165" y="60" width="22" height="160" fill="#d8b88a"/>
+        <rect x="163" y="58" width="26" height="6" fill="#c9a87a"/>
+        <circle cx="176" cy="90" r="8" fill="#fff8e8" stroke="#a08560" stroke-width="1.5"/>
+        <line x1="176" y1="90" x2="176" y2="84" stroke="#5a4a30" stroke-width="1.2"/>
+        <line x1="176" y1="90" x2="180" y2="92" stroke="#5a4a30" stroke-width="1.2"/>
+        <path d="M165 60 L176 35 L187 60 Z" fill="#a08560"/>
+        <ellipse cx="20" cy="195" rx="20" ry="18" fill="#7d8a5c" opacity=".7"/>
+        <ellipse cx="265" cy="200" rx="18" ry="16" fill="#7d8a5c" opacity=".7"/>
+        <ellipse cx="245" cy="180" rx="6" ry="22" fill="#5e6b40" opacity=".8"/>
+      </svg>
+    </div>
+
+    <div class="section-head">
+      <h2>International coverage</h2>
+      <span class="meta">Updated 1h ago<span class="live-dot"></span></span>
+    </div>
+
+    <div class="news-grid">
+      <div class="news-card">
+        <div class="news-body">
+          <div class="news-cat cat-economy">Economy</div>
+          <div class="news-title">Albania's economy outpaces Balkans for third year</div>
+          <div class="news-pub">
+            <span class="pub-badge ft">FT</span>
+            <span class="pub-name">Financial Times</span>
+          </div>
+        </div>
+        <div class="news-thumb">
+          <svg viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="80" fill="#e8e8d8"/>
+            <g fill="#b5c4a4">
+              <rect x="10" y="55" width="8" height="15"/>
+              <rect x="22" y="48" width="8" height="22"/>
+              <rect x="34" y="40" width="8" height="30"/>
+              <rect x="46" y="32" width="8" height="38"/>
+              <rect x="58" y="22" width="8" height="48"/>
+              <rect x="70" y="14" width="8" height="56"/>
+              <rect x="82" y="8"  width="8" height="62"/>
+            </g>
+            <polyline points="14,52 26,45 38,37 50,29 62,19 74,11 86,5" fill="none" stroke="#7d8a5c" stroke-width="1.5"/>
+            <path d="M83 8 L92 4 L88 12 Z" fill="#7d8a5c"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="news-card">
+        <div class="news-body">
+          <div class="news-cat cat-culture">Culture &amp; Design</div>
+          <div class="news-title">Tirana's rebranding as a design capital</div>
+          <div class="news-pub">
+            <span class="pub-badge monocle">M</span>
+            <span class="pub-name">Monocle</span>
+          </div>
+        </div>
+        <div class="news-thumb">
+          <svg viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="80" fill="#ede4d2"/>
+            <rect x="20" y="20" width="55" height="50" fill="#fafaf3"/>
+            <rect x="25" y="25" width="14" height="14" fill="#e0d8c8"/>
+            <rect x="42" y="25" width="14" height="14" fill="#e0d8c8"/>
+            <rect x="59" y="25" width="14" height="14" fill="#e0d8c8"/>
+            <rect x="20" y="60" width="55" height="10" fill="#d4c8b0"/>
+            <ellipse cx="86" cy="60" rx="7" ry="14" fill="#7d8a5c" opacity=".6"/>
+            <ellipse cx="92" cy="58" rx="5" ry="11" fill="#5e6b40" opacity=".7"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="news-card">
+        <div class="news-body">
+          <div class="news-cat cat-eu">EU &amp; Politics</div>
+          <div class="news-title">EU accession talks gain momentum in Tirana</div>
+          <div class="news-pub">
+            <span class="pub-badge reuters"></span>
+            <span class="pub-name">Reuters</span>
+          </div>
+        </div>
+        <div class="news-thumb">
+          <svg viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="80" fill="#dde4ec"/>
+            <line x1="30" y1="10" x2="30" y2="75" stroke="#a89878" stroke-width="2"/>
+            <line x1="65" y1="10" x2="65" y2="75" stroke="#a89878" stroke-width="2"/>
+            <path d="M30 12 L52 14 L52 36 L30 32 Z" fill="#1f4ea8"/>
+            <g fill="#f0c850">
+              <circle cx="36" cy="18" r="1"/><circle cx="41" cy="17" r="1"/><circle cx="46" cy="18" r="1"/>
+              <circle cx="48" cy="22" r="1"/><circle cx="48" cy="27" r="1"/>
+              <circle cx="46" cy="31" r="1"/><circle cx="41" cy="32" r="1"/><circle cx="36" cy="31" r="1"/>
+              <circle cx="34" cy="27" r="1"/><circle cx="34" cy="22" r="1"/>
+            </g>
+            <path d="M65 12 L88 14 L88 38 L65 34 Z" fill="#c93030"/>
+            <text x="76" y="29" font-size="14" fill="#1a1a1a" text-anchor="middle" font-weight="bold">⟱</text>
+          </svg>
+        </div>
+      </div>
+
+      <div class="news-card">
+        <div class="news-body">
+          <div class="news-cat cat-travel">Travel Perception</div>
+          <div class="news-title">Tirana: Europe's next unexpected weekend escape</div>
+          <div class="news-pub">
+            <span class="pub-badge lonely"><span>lonely</span><span>planet</span></span>
+            <span class="pub-name">Lonely Planet</span>
+          </div>
+        </div>
+        <div class="news-thumb">
+          <svg viewBox="0 0 100 80" xmlns="http://www.w3.org/2000/svg">
+            <rect width="100" height="80" fill="#ede4d2"/>
+            <path d="M0 50 L20 35 L35 45 L55 25 L75 40 L100 30 L100 80 L0 80 Z" fill="#c9b894" opacity=".6"/>
+            <rect x="20" y="50" width="14" height="30" fill="#d8c4a0"/>
+            <rect x="40" y="55" width="12" height="25" fill="#c9b594"/>
+            <rect x="60" y="40" width="8" height="40" fill="#d8b88a"/>
+            <path d="M59 40 L64 28 L69 40 Z" fill="#a08560"/>
+            <rect x="76" y="50" width="14" height="30" fill="#d8c4a0"/>
+          </svg>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-head"><h2>Beyond the headlines</h2></div>
+    <div class="sentiment-cta">
+      <div class="globe-icon">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <circle cx="12" cy="12" r="9"/>
+          <ellipse cx="12" cy="12" rx="4" ry="9"/>
+          <line x1="3" y1="12" x2="21" y2="12"/>
+        </svg>
+      </div>
+      <div class="sentiment-cta-text">
+        <div class="sentiment-cta-title">Explore global sentiment</div>
+        <div class="sentiment-cta-sub">See what the world is saying about Tirana</div>
+      </div>
+      <span class="chevron" style="font-size:20px;color:var(--muted);">›</span>
+    </div>
+
+  </section>
+
+</main>
+
+<!-- Profile drawer -->
+<div class="drawer-backdrop" id="drawer-backdrop" onclick="closeDrawer()"></div>
+<aside class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h3>Settings &amp; chats</h3>
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">×</button>
   </div>
+  <div class="drawer-body">
 
-  <!-- ── History panel ── -->
-  <div id="history-panel">
-    <div class="panel-header">
-      <h3>🗒️ Session Log</h3>
+    <div class="drawer-section">
+      <h4>Current chat</h4>
+      <div class="session-current">
+        <label>Session name</label>
+        <input type="text" id="session-name-input" class="session-name-input" maxlength="80" onblur="renameCurrentSession()" onkeydown="if(event.key==='Enter')this.blur()">
+        <input type="hidden" id="session-id">
+      </div>
+      <div class="session-actions">
+        <button class="small-btn primary" onclick="newSession()">+ New chat</button>
+        <button class="small-btn" onclick="loadSessionList()">↻ Refresh list</button>
+      </div>
     </div>
-    <div class="panel-tabs">
-      <button class="tab-btn active" id="tab-hist" onclick="switchTab('history')">History</button>
-      <button class="tab-btn"        id="tab-sum"  onclick="switchTab('summary')">Summary</button>
+
+    <div class="drawer-section">
+      <h4>Reply preferences</h4>
+      <div class="drawer-row">
+        <label for="lang-select">Language</label>
+        <select id="lang-select" onchange="setLanguage(this.value)">
+          <option value="auto">Auto detect</option>
+          <option value="en">English</option>
+          <option value="sq">Shqip</option>
+          <option value="it">Italiano</option>
+          <option value="de">Deutsch</option>
+          <option value="fr">Français</option>
+          <option value="es">Español</option>
+          <option value="tr">Türkçe</option>
+          <option value="el">Ελληνικά</option>
+          <option value="ru">Русский</option>
+          <option value="zh">中文</option>
+          <option value="ar">العربية</option>
+        </select>
+      </div>
+      <div class="drawer-row">
+        <label for="model-select">Model</label>
+        <select id="model-select" onchange="setModel(this.value)">
+          <option value="meta-llama/llama-4-scout">Llama 4 Scout</option>
+          <option value="deepseek/deepseek-chat">DeepSeek V3</option>
+        </select>
+      </div>
     </div>
-    <div class="panel-content" id="panel-body">
-      <p class="panel-empty">Start chatting to see<br>your conversation here.</p>
+
+    <div class="drawer-section">
+      <h4>Personalization</h4>
+      <div class="pref-summary" id="pref-summary">
+        <span class="pref-tag empty">Not set yet</span>
+      </div>
+      <div class="session-actions">
+        <button class="small-btn primary" onclick="openOnboarding(true)">Edit preferences</button>
+        <button class="small-btn" onclick="resetOnboarding()">Reset</button>
+      </div>
     </div>
-    <div style="padding:0 12px 14px;flex-shrink:0;display:flex;flex-direction:column;gap:6px">
-      <button class="refresh-btn" onclick="loadPanel()">↻ Refresh</button>
+
+    <div class="drawer-section">
+      <h4>Summary &amp; context</h4>
+      <div id="summary-display"></div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;">
+        <button class="small-btn" onclick="downloadCurrentSummary()">⬇ Download summary</button>
+        <label class="upload-label">
+          📎 Inject .txt as context
+          <input type="file" accept=".txt" onchange="loadContextFile(event)">
+        </label>
+      </div>
     </div>
+
+    <div class="drawer-section">
+      <h4>Recent chats</h4>
+      <div class="session-list" id="session-list">
+        <div class="summary-empty">Loading…</div>
+      </div>
+    </div>
+
   </div>
-</div>
+</aside>
+
+<div class="toast" id="toast"></div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/9.1.6/marked.min.js"></script>
 <script>
+  /* =====================================================================
+     TiranaTips — App logic (web-app variant)
+     ===================================================================== */
+
   const API = 'http://84.8.251.50:8000';
-  marked.use({ breaks: true });
 
-  let panelOpen       = false;
-  let currentAbortController = null;
-  let lastUserQuestion = null;
-  let activeTab       = 'history';
-  let msgCount        = 0;
-  let activeModel     = 'auto';
-  let activeModelName = '⚡ Auto';
-  let currentDisplayName = '';
-
-  // ── Context injection state ──────────────────────────────────────────────
-  // Stores text from a past summary or uploaded file.
-  // It's prepended to the next sent message so the LLM has prior context.
-  let injectedContext = null;
-  let injectedContextLabel = '';
-
-  function setContext(text, label) {
-    injectedContext = text;
-    injectedContextLabel = label;
-    // Session-bar indicator
-    document.getElementById('context-source').textContent = label;
-    document.getElementById('context-indicator').style.display = 'flex';
-    // Input-area banner
-    document.getElementById('context-banner-text').textContent = `📎 Context from: ${label}`;
-    document.getElementById('context-banner').classList.add('show');
+  // Guard against the marked CDN failing — fall back to plain-text rendering
+  // so the rest of init keeps running.
+  if (typeof marked !== 'undefined') {
+    marked.use({ breaks: true });
+  } else {
+    window.marked = {
+      parse: (s) => String(s)
+        .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+        .replace(/\n/g,'<br>')
+    };
   }
 
+  // ── Console logging ──────────────────────────────────────────────────────
+  // Colored tags make it easy to spot which retrieval path each turn took
+  // (RAG vs web search vs cache) during development. Doesn't affect UX —
+  // pure dev aid. Removable by deleting these two lines and all `clog(...)`
+  // calls below.
+  const LOG = {
+    req:   'background:#1a1a2e;color:#a8d8ea;font-weight:bold;padding:2px 6px;border-radius:3px',
+    rag:   'background:#0f3460;color:#e2b96f;font-weight:bold;padding:2px 6px;border-radius:3px',
+    web:   'background:#16213e;color:#7ec8e3;font-weight:bold;padding:2px 6px;border-radius:3px',
+    cache: 'background:#065535;color:#b8f0c8;font-weight:bold;padding:2px 6px;border-radius:3px',
+    warn:  'background:#7a3b00;color:#ffd580;font-weight:bold;padding:2px 6px;border-radius:3px',
+    err:   'background:#7a0000;color:#ffb3b3;font-weight:bold;padding:2px 6px;border-radius:3px',
+    done:  'background:#1b4332;color:#95d5b2;font-weight:bold;padding:2px 6px;border-radius:3px',
+  };
+  const clog = (tag, ...args) => console.log(`%c ${tag.toUpperCase()} `, LOG[tag] || LOG.done, ...args);
+
+  // ── Greeting + date in Tirana time ───────────────────────────────────────
+  (function initGreeting() {
+    const now = new Date();
+    const dateStr = new Intl.DateTimeFormat('en-GB',
+      { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Tirane' }).format(now);
+    const tiranaHour = parseInt(new Intl.DateTimeFormat('en-GB',
+      { hour: 'numeric', hour12: false, timeZone: 'Europe/Tirane' }).format(now), 10);
+    const greet = tiranaHour < 5  ? 'Good night'
+                : tiranaHour < 12 ? 'Good morning'
+                : tiranaHour < 18 ? 'Good afternoon'
+                                  : 'Good evening';
+    document.getElementById('greeting-title').textContent = `${greet}, Tirana`;
+    document.getElementById('date-line').textContent      = `${dateStr} · Partly cloudy`;
+  })();
+
+  // ── Tab switching ────────────────────────────────────────────────────────
+  function switchTab(name) {
+    document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+    document.getElementById(`panel-${name}`).classList.add('active');
+    document.querySelector(`.tab-btn[data-tab="${name}"]`).classList.add('active');
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }
+
+  // ── Drawer ───────────────────────────────────────────────────────────────
+  function openDrawer() {
+    document.getElementById('drawer-backdrop').classList.add('open');
+    document.getElementById('drawer').classList.add('open');
+    refreshDrawerData();
+  }
+  function closeDrawer() {
+    document.getElementById('drawer-backdrop').classList.remove('open');
+    document.getElementById('drawer').classList.remove('open');
+  }
+
+  // ── State ────────────────────────────────────────────────────────────────
+  let activeModel    = 'meta-llama/llama-4-scout';
+  let activeLanguage = 'auto';
+  let currentSessionName = '';
+  let currentAbortController = null;
+  let lastSentQuestion       = '';
+  let injectedContext      = null;
+  let injectedContextLabel = '';
+
+  const PREF_KEY_LANG  = 'tiranatips.language';
+  const PREF_KEY_MODEL = 'tiranatips.model';
+  const PREF_KEY_USER  = 'tiranatips.userId';
+
+  // ── Anonymous user identity ──────────────────────────────────────────────
+  function getUserId() {
+    let id = null;
+    try { id = localStorage.getItem(PREF_KEY_USER); } catch {}
+    if (!id) {
+      id = (crypto.randomUUID ? crypto.randomUUID()
+                              : 'u-' + Math.random().toString(36).slice(2) + Date.now().toString(36));
+      try { localStorage.setItem(PREF_KEY_USER, id); } catch {}
+    }
+    return id;
+  }
+  const userId = getUserId();
+
+  let prefOptions  = null;
+  let onboardDraft = { mode: null, price_tier: null, interests: [], currency: null };
+  let onboardStep  = 0;
+  let onboardEditMode = false;
+  const ONBOARD_STEPS = 4;
+
+  function setLanguage(l) {
+    activeLanguage = l;
+    const pillSel    = document.getElementById('lang-pill-select');
+    const drawerSel  = document.getElementById('lang-select');
+    if (pillSel   && pillSel.value   !== l) pillSel.value   = l;
+    if (drawerSel && drawerSel.value !== l) drawerSel.value = l;
+    try { localStorage.setItem(PREF_KEY_LANG, l); } catch {}
+  }
+  function setModel(m) {
+    activeModel = m;
+    const drawerSel = document.getElementById('model-select');
+    if (drawerSel && drawerSel.value !== m) drawerSel.value = m;
+    try { localStorage.setItem(PREF_KEY_MODEL, m); } catch {}
+  }
+
+  (function restorePrefs() {
+    try {
+      const savedLang  = localStorage.getItem(PREF_KEY_LANG);
+      const savedModel = localStorage.getItem(PREF_KEY_MODEL);
+      if (savedLang)  setLanguage(savedLang);
+      if (savedModel) setModel(savedModel);
+    } catch {}
+  })();
+
+  function generateId() { return 'trip-' + Math.random().toString(36).slice(2, 9); }
+  function getSessionId() { return document.getElementById('session-id').value.trim(); }
+
+  (function initSession() {
+    const id = generateId();
+    document.getElementById('session-id').value = id;
+    currentSessionName = id;
+    document.getElementById('session-name-input').value = id;
+  })();
+
+  // ── Toast ────────────────────────────────────────────────────────────────
+  let toastTimer;
+  function showToast(text) {
+    const t = document.getElementById('toast');
+    t.textContent = text;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
+  }
+
+  // ── Context injection ────────────────────────────────────────────────────
+  function setContext(text, label) {
+    injectedContext      = text;
+    injectedContextLabel = label;
+    document.getElementById('context-banner-text').textContent = `📎 Context: ${label}`;
+    document.getElementById('context-banner').classList.add('show');
+    showToast('Context loaded — will apply to your next message');
+  }
   function clearContext() {
     injectedContext = null;
     injectedContextLabel = '';
-    document.getElementById('context-indicator').style.display = 'none';
     document.getElementById('context-banner').classList.remove('show');
   }
-
-  async function loadContextFromSession(sessionId, sessionName, e) {
-    e && e.stopPropagation();
-    try {
-      const data = await fetch(`${API}/summary/${sessionId}`).then(r => r.json());
-      if (data.summary) {
-        setContext(data.summary, sessionName);
-        document.getElementById('session-dropdown').style.display = 'none';
-      } else {
-        alert('No summary available for this session yet.\nSummaries are generated after every 10 messages.');
-      }
-    } catch {
-      alert('Could not load summary from server.');
-    }
-  }
-
   function loadContextFile(event) {
     const file = event.target.files[0];
     if (!file) return;
     const reader = new FileReader();
-    reader.onload = (e) => setContext(e.target.result.trim(), file.name);
+    reader.onload = e => setContext(e.target.result.trim(), file.name);
     reader.readAsText(file);
-    event.target.value = ''; // reset so same file can be re-uploaded
+    event.target.value = '';
+    closeDrawer();
+    switchTab('ask');
   }
 
-  // ── Download summary as .txt ─────────────────────────────────────────────
-  function downloadSummary(text) {
-    const safeName = (currentDisplayName || getSessionId()).replace(/[^a-z0-9]/gi, '_');
-    const blob = new Blob([text], { type: 'text/plain' });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement('a');
-    a.href     = url;
-    a.download = `tiranatips-summary-${safeName}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  // ── Model selection ───────────────────────────────────────────────────────
-  function selectModel(btn, model, name) {
-    activeModel     = model;
-    activeModelName = name;
-    document.querySelectorAll('.model-pill').forEach(b => b.classList.remove('active'));
-    btn.classList.add('active');
-  }
-
-  function generateId() { return 'trip-' + Math.random().toString(36).slice(2, 9); }
-
-  // Init first session and immediately offer rename
-  (function() {
+  // ── Sessions ─────────────────────────────────────────────────────────────
+  function newSession() {
     const id = generateId();
     document.getElementById('session-id').value = id;
-    currentDisplayName = id;
-    updateSessionLabel();
-    // Small delay so DOM is fully rendered before edit
-    setTimeout(() => startSessionLabelEdit(), 80);
-  })();
-
-  function getSessionId() { return document.getElementById('session-id').value.trim(); }
-
-  // ── Inline session label editing ─────────────────────────────────────────
-  // Replaces the visible label span with a text input; on blur/Enter, commits.
-  function startSessionLabelEdit() {
-    const labelEl = document.getElementById('session-label');
-    if (!labelEl) return;
-    if (document.getElementById('inline-rename-input')) return; // already editing
-
-    const current = currentDisplayName || getSessionId();
-
-    const inp = document.createElement('input');
-    inp.id        = 'inline-rename-input';
-    inp.type      = 'text';
-    inp.value     = current;
-    inp.maxLength = 80;
-    inp.className = 'inline-rename-input';
-    inp.placeholder = 'Session name…';
-    inp.title     = 'Enter to save · Esc to cancel';
-
-    inp.onblur = finishSessionLabelEdit;
-    inp.onkeydown = (e) => {
-      if (e.key === 'Enter')  { e.preventDefault(); inp.blur(); }
-      if (e.key === 'Escape') { inp.onblur = null; labelEl.style.display = ''; inp.remove(); }
-    };
-
-    labelEl.style.display = 'none';
-    labelEl.parentNode.insertBefore(inp, labelEl);
-    inp.focus();
-    inp.select();
+    currentSessionName = id;
+    document.getElementById('session-name-input').value = id;
+    document.getElementById('chat-window').innerHTML = '';
+    document.getElementById('suggestion-grid').style.display = '';
+    clearContext();
+    closeDrawer();
+    switchTab('ask');
+    showToast('New chat started');
   }
 
-  async function finishSessionLabelEdit() {
-    const inp     = document.getElementById('inline-rename-input');
-    const labelEl = document.getElementById('session-label');
-    if (!inp) return;
-    const name = inp.value.trim();
-    inp.remove();
-    labelEl.style.display = '';
-    if (name && name !== getSessionId()) {
-      await commitRenameActive(name);
-    }
-    updateSessionLabel();
-  }
-
-  function updateSessionLabel() {
-    const label = document.getElementById('session-label');
-    if (label) label.textContent = currentDisplayName || getSessionId();
-  }
-
-  async function commitRenameActive(newName) {
+  async function renameCurrentSession() {
+    const newName = document.getElementById('session-name-input').value.trim();
+    if (!newName || newName === currentSessionName) return;
     try {
       await fetch(`${API}/sessions/${getSessionId()}/rename`, {
         method:  'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body:    JSON.stringify({ display_name: newName }),
       });
-      currentDisplayName = newName;
-      updateSessionLabel();
+      currentSessionName = newName;
+      showToast('Renamed');
     } catch {}
   }
 
-  // ── New session ──────────────────────────────────────────────────────────
-  function newSession() {
-    const id = generateId();
-    document.getElementById('session-id').value = id;
-    currentDisplayName = id;
-    updateSessionLabel();
-    clearContext();
-
-    document.getElementById('chat-window').innerHTML = `
-      <div class="welcome" id="welcome-screen">
-        <div class="welcome-map">🧭</div>
-        <h2>New <em>adventure</em> awaits</h2>
-        <p>Your previous chat was saved. Ask me anything about the city!</p>
-        <div class="suggestions">
-          <div class="suggestion" onclick="fillAndSend(this)">🏛️ Top landmarks to visit</div>
-          <div class="suggestion" onclick="fillAndSend(this)">🍕 Best local food spots</div>
-          <div class="suggestion" onclick="fillAndSend(this)">🚌 How to get around</div>
-          <div class="suggestion" onclick="fillAndSend(this)">🌅 Where to watch the sunset</div>
-        </div>
-      </div>`;
-
-    msgCount = 0; updateBadge();
-    loadPanel(); // refresh panel for new (empty) session
-
-    // Auto-prompt rename so user can name the session immediately
-    setTimeout(() => startSessionLabelEdit(), 80);
-  }
-
-  // ── Session dropdown ─────────────────────────────────────────────────────
-  async function loadSessions() {
-    const dd = document.getElementById('session-dropdown');
-    if (dd.style.display === 'block') { dd.style.display = 'none'; return; }
-    dd.innerHTML = '<div style="padding:10px 14px;color:var(--muted);font-size:11px">Loading…</div>';
-    dd.style.display = 'block';
+  async function loadSessionList() {
+    const list = document.getElementById('session-list');
+    list.innerHTML = '<div class="summary-empty">Loading…</div>';
     try {
-      const data     = await fetch(`${API}/sessions`).then(r => r.json());
+      const data = await fetch(`${API}/sessions`).then(r => r.json());
       const sessions = data.sessions || [];
       if (!sessions.length) {
-        dd.innerHTML = '<div style="padding:10px 14px;color:var(--muted);font-size:11px">No saved sessions.</div>';
+        list.innerHTML = '<div class="summary-empty">No saved chats yet.</div>';
         return;
       }
-      dd.innerHTML = sessions.map(s => `
-        <div class="session-row" data-id="${s.session_id}">
-          <span class="session-name"
-                onclick="selectSession('${s.session_id}','${escapeAttr(s.display_name)}')"
-                title="${escapeAttr(s.session_id)}">
-            ${escapeHtml(s.display_name)}
-          </span>
-          <div class="session-actions">
-            <button class="sess-action-btn ctx-btn"
-                    onclick="loadContextFromSession('${s.session_id}','${escapeAttr(s.display_name)}',event)"
-                    title="Load this session's summary as context">📎</button>
-            <button class="sess-action-btn"
-                    onclick="startRename('${s.session_id}','${escapeAttr(s.display_name)}')"
-                    title="Rename">✏️</button>
-            <button class="sess-action-btn"
-                    onclick="deleteSession('${s.session_id}',event)"
-                    title="Delete"
-                    onmouseover="this.style.color='#c03030'"
-                    onmouseout="this.style.color='var(--muted)'">✕</button>
+      list.innerHTML = sessions.map(s => `
+        <div class="session-item ${s.session_id === getSessionId() ? 'active' : ''}" data-id="${s.session_id}">
+          <span class="name" title="${escapeAttr(s.session_id)}" onclick="loadSession('${s.session_id}','${escapeAttr(s.display_name)}')">${escapeHtml(s.display_name)}</span>
+          <div class="actions">
+            <button title="Inject summary as context" onclick="injectFromSession('${s.session_id}','${escapeAttr(s.display_name)}')">📎</button>
+            <button title="Delete" onclick="deleteSession('${s.session_id}')">✕</button>
           </div>
-        </div>`).join('');
+        </div>
+      `).join('');
     } catch {
-      dd.innerHTML = '<div style="padding:10px 14px;color:#c03030;font-size:11px">Load error.</div>';
+      list.innerHTML = '<div class="summary-empty">Could not load chats.</div>';
     }
   }
 
-  // FIX 2: select session → load its messages into chat window + always refresh panel
-  async function selectSession(id, displayName) {
+  async function loadSession(id, displayName) {
     document.getElementById('session-id').value = id;
-    currentDisplayName = displayName || id;
-    updateSessionLabel();
-    document.getElementById('session-dropdown').style.display = 'none';
+    currentSessionName = displayName || id;
+    document.getElementById('session-name-input').value = currentSessionName;
     clearContext();
+    closeDrawer();
+    switchTab('ask');
 
-    await loadSessionIntoChat(id); // load messages into main window
-    loadPanel();                   // always update the side panel
-  }
-
-  // Load a session's full message history into the main chat window
-  async function loadSessionIntoChat(sessionId) {
     const win = document.getElementById('chat-window');
-    win.innerHTML = '<div style="margin:auto;text-align:center;color:var(--muted);font-size:13px;padding:40px">Loading session…</div>';
-    try {
-      const data = await fetch(`${API}/history/${sessionId}`).then(r => r.json());
-      const msgs = data.messages || [];
-      win.innerHTML = '';
+    win.innerHTML = '';
+    document.getElementById('suggestion-grid').style.display = 'none';
 
+    try {
+      const data = await fetch(`${API}/history/${id}`).then(r => r.json());
+      const msgs = data.messages || [];
       if (!msgs.length) {
-        win.innerHTML = `
-          <div class="welcome" id="welcome-screen">
-            <div class="welcome-map">🧭</div>
-            <h2><em>Session</em> loaded</h2>
-            <p>No messages yet in this session. Ask anything about the city!</p>
-            <div class="suggestions">
-              <div class="suggestion" onclick="fillAndSend(this)">🏛️ Top landmarks to visit</div>
-              <div class="suggestion" onclick="fillAndSend(this)">🍕 Best local food spots</div>
-            </div>
-          </div>`;
-        msgCount = 0;
-      } else {
-        msgs.forEach(m => {
-          if (m.role === 'user') {
-            appendUserMessage(m.content);
-          } else if (m.role === 'assistant') {
-            appendHistoricalAiMessage(m.content);
-          }
-        });
-        msgCount = msgs.length;
+        document.getElementById('suggestion-grid').style.display = '';
+        return;
       }
-      updateBadge();
-      win.scrollTop = win.scrollHeight;
+      msgs.forEach(m => {
+        if (m.role === 'user')        appendUserBubble(m.content);
+        else if (m.role === 'assistant') appendHistoricalAi(m.content);
+      });
+      scrollToBottom();
     } catch {
-      win.innerHTML = '<div style="margin:auto;text-align:center;color:#c03030;font-size:13px;padding:40px">Could not load session history.</div>';
+      showToast('Could not load chat history');
     }
   }
 
-  // Append a user message bubble (without the welcome-screen removal side-effect)
-  function appendUserMessage(content) {
-    document.getElementById('welcome-screen')?.remove();
-    const win = document.getElementById('chat-window');
-    const div = document.createElement('div');
-    div.className = 'message user';
-    div.innerHTML = `
-      <div class="avatar">You</div>
-      <div class="bubble">${escapeHtml(content).replace(/\n/g,'<br>')}</div>`;
-    win.appendChild(div);
-  }
-
-  // Append a historical (loaded) AI message — rendered markdown, no feedback buttons
-  function appendHistoricalAiMessage(content) {
-    document.getElementById('welcome-screen')?.remove();
-    const win = document.getElementById('chat-window');
-    const div = document.createElement('div');
-    div.className = 'message ai historical';
-    div.innerHTML = `
-      <div class="avatar">🧭</div>
-      <div class="bubble">
-        <div class="md-content">${marked.parse(content)}</div>
-      </div>`;
-    win.appendChild(div);
-  }
-
-  function startRename(sessionId, currentName) {
-    const row = document.querySelector(`.session-row[data-id="${sessionId}"]`);
-    if (!row) return;
-    row.innerHTML = `
-      <input class="rename-input" id="rename-input-${sessionId}"
-             value="${escapeAttr(currentName)}" maxlength="80"
-             onclick="event.stopPropagation()"
-             onkeydown="handleRenameKey(event,'${sessionId}')">
-      <div class="session-actions">
-        <button class="sess-action-btn" style="color:var(--leaf)" onclick="commitRename('${sessionId}')">✓</button>
-        <button class="sess-action-btn" onclick="loadSessions()">✕</button>
-      </div>`;
-    const inp = document.getElementById(`rename-input-${sessionId}`);
-    inp.focus(); inp.select();
-  }
-
-  function handleRenameKey(e, sessionId) {
-    e.stopPropagation();
-    if (e.key === 'Enter')  commitRename(sessionId);
-    if (e.key === 'Escape') loadSessions();
-  }
-
-  async function commitRename(sessionId) {
-    const inp = document.getElementById(`rename-input-${sessionId}`);
-    const newName = inp ? inp.value.trim() : '';
-    if (!newName) return;
+  async function deleteSession(id) {
+    if (!confirm('Delete this chat?')) return;
     try {
-      await fetch(`${API}/sessions/${sessionId}/rename`, {
-        method:  'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ display_name: newName }),
-      });
-      if (getSessionId() === sessionId) {
-        currentDisplayName = newName;
-        updateSessionLabel();
-      }
+      await fetch(`${API}/sessions/${id}`, { method: 'DELETE' });
+      if (getSessionId() === id) newSession();
+      loadSessionList();
     } catch {}
-    loadSessions();
   }
 
-  async function deleteSession(id, e) {
-    e.stopPropagation();
-    if (!confirm(`Delete session "${id}"?`)) return;
-    await fetch(`${API}/sessions/${id}`, { method: 'DELETE' });
-    if (getSessionId() === id) newSession();
-    loadSessions();
+  async function injectFromSession(id, name) {
+    try {
+      const data = await fetch(`${API}/summary/${id}`).then(r => r.json());
+      if (data.summary) {
+        setContext(data.summary, name);
+        closeDrawer();
+      } else {
+        showToast('No summary available yet for that chat');
+      }
+    } catch {
+      showToast('Could not load summary');
+    }
   }
 
-  document.addEventListener('click', e => {
-    if (!e.target.closest('.session-bar'))
-      document.getElementById('session-dropdown').style.display = 'none';
+  async function loadCurrentSummary() {
+    const el = document.getElementById('summary-display');
+    try {
+      const data = await fetch(`${API}/summary/${getSessionId()}`).then(r => r.json());
+      if (!data.summary) {
+        el.innerHTML = '<div class="summary-empty">No summary yet — created after every 10 messages.</div>';
+      } else {
+        el.innerHTML = `<div class="summary-display">${escapeHtml(data.summary)}</div>`;
+      }
+    } catch {
+      el.innerHTML = '<div class="summary-empty">Error loading summary.</div>';
+    }
+  }
+
+  async function downloadCurrentSummary() {
+    try {
+      const data = await fetch(`${API}/summary/${getSessionId()}`).then(r => r.json());
+      if (!data.summary) { showToast('No summary to download yet'); return; }
+      const safe = (currentSessionName || getSessionId()).replace(/[^a-z0-9]/gi, '_');
+      const blob = new Blob([data.summary], { type: 'text/plain' });
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement('a');
+      a.href     = url;
+      a.download = `tiranatips-summary-${safe}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      showToast('Could not download');
+    }
+  }
+
+  function refreshDrawerData() {
+    loadCurrentSummary();
+    loadSessionList();
+  }
+
+  // ── Suggestion + chip prompts ────────────────────────────────────────────
+  document.querySelectorAll('[data-prompt]').forEach(el => {
+    el.addEventListener('click', () => {
+      const prompt = el.dataset.prompt;
+      document.getElementById('user-input').value = prompt;
+      sendMessage();
+    });
   });
 
-  // ── Side panel ───────────────────────────────────────────────────────────
-  function togglePanel() {
-    panelOpen = !panelOpen;
-    document.getElementById('history-panel').classList.toggle('open', panelOpen);
-    document.getElementById('hist-btn').classList.toggle('active', panelOpen);
-    if (panelOpen) loadPanel();
+  // ── Chat rendering ───────────────────────────────────────────────────────
+  function hideSuggestions() {
+    document.getElementById('suggestion-grid').style.display = 'none';
   }
 
-  function switchTab(tab) {
-    activeTab = tab;
-    document.getElementById('tab-hist').classList.toggle('active', tab === 'history');
-    document.getElementById('tab-sum').classList.toggle('active',  tab === 'summary');
-    loadPanel();
-  }
-
-  function updateBadge() {
-    const b = document.getElementById('msg-badge');
-    b.textContent = msgCount;
-    b.classList.toggle('show', msgCount > 0);
-  }
-
-  async function loadPanel() {
-    const body = document.getElementById('panel-body');
-    body.innerHTML = '<p class="panel-empty">Loading…</p>';
-
-    if (activeTab === 'history') {
-      try {
-        const data = await fetch(`${API}/history/${getSessionId()}`).then(r => r.json());
-        const msgs = data.messages || [];
-        if (!msgs.length) {
-          body.innerHTML = '<p class="panel-empty">No messages yet<br>for this session.</p>';
-          return;
-        }
-        body.innerHTML = `<p class="msg-count">${msgs.length} messages</p>`;
-        msgs.forEach(m => {
-          const d = document.createElement('div');
-          d.className = `hist-msg ${m.role}`;
-          d.innerHTML = `<div class="role-label">${m.role === 'user' ? '🧑 You' : '🤖 Guide'}</div>
-                         <div class="msg-text">${escapeHtml(m.content)}</div>`;
-          body.appendChild(d);
-        });
-        body.scrollTop = body.scrollHeight;
-      } catch { body.innerHTML = '<p class="panel-empty">Error loading history.</p>'; }
-
-    } else {
-      // Summary tab — with download button
-      try {
-        const data = await fetch(`${API}/summary/${getSessionId()}`).then(r => r.json());
-        if (!data.summary) {
-          body.innerHTML = `<p class="summary-empty">No summary yet.<br><br>
-            One is created automatically<br>every <strong>10 messages</strong>.</p>`;
-          return;
-        }
-        body.innerHTML = '';
-
-        const box = document.createElement('div');
-        box.className = 'summary-box';
-        box.innerHTML = `<span class="sum-label">✦ Conversation summary</span>${escapeHtml(data.summary)}`;
-        body.appendChild(box);
-
-        // Download button — saves the summary as a .txt file you can re-upload as context
-        const dl = document.createElement('button');
-        dl.className = 'download-btn';
-        dl.innerHTML = '⬇ Download as .txt';
-        dl.onclick = () => downloadSummary(data.summary);
-        body.appendChild(dl);
-
-        // Explanatory note
-        const note = document.createElement('p');
-        note.style.cssText = 'font-size:10px;color:var(--muted);text-align:center;line-height:1.6;margin-top:4px;';
-        note.textContent = 'Use "Load summary" in the session bar to inject this into a future chat.';
-        body.appendChild(note);
-
-      } catch { body.innerHTML = '<p class="panel-empty">Error loading summary.</p>'; }
-    }
-  }
-
-  // ── Chat messages ─────────────────────────────────────────────────────────
-  function appendMessage(role, content, sources = [], fromCache = false, modelName = '') {
-    document.getElementById('welcome-screen')?.remove();
+  function appendUserBubble(text) {
+    hideSuggestions();
     const win = document.getElementById('chat-window');
-    const div = document.createElement('div');
-    div.className = `message ${role}`;
-
-    let metaHtml = '';
-    if (role === 'ai') {
-      const modelTag = modelName ? `<span class="model-tag">${escapeHtml(modelName)}</span>` : '';
-      const cacheTag = fromCache  ? `<span class="cache-tag">⚡ cached</span>` : '';
-      if (modelTag || cacheTag) metaHtml = `<div class="bubble-meta">${modelTag}${cacheTag}</div>`;
-    }
-
-    const srcHtml = sources.length
-      ? `<div class="sources">${sources.map(s => `<span class="source-tag">${escapeHtml(s)}</span>`).join('')}</div>`
-      : '';
-
-    div.innerHTML = `
-      <div class="avatar">${role === 'user' ? 'You' : '🧭'}</div>
-      <div class="bubble ${role === 'error' ? 'error-bubble' : ''}">
-        ${metaHtml}${escapeHtml(content).replace(/\n/g,'<br>')}${srcHtml}
-      </div>`;
-    win.appendChild(div);
-    win.scrollTop = win.scrollHeight;
+    const row = document.createElement('div');
+    row.className = 'chat-row user';
+    row.innerHTML = `<div class="chat-bubble">${escapeHtml(text).replace(/\n/g,'<br>')}</div>`;
+    win.appendChild(row);
+    scrollToBottom();
   }
 
-  function showFeedbackButtons(el, question) {
-    el.innerHTML = `
-      <div class="feedback-row">
-        <span class="feedback-label">Helpful?</span>
-        <button class="fb-btn" id="fb-up"   title="Yes, helpful!">👍</button>
-        <button class="fb-btn" id="fb-down" title="Could be better">👎</button>
-        <button class="fb-btn retry-btn" onclick="retryLast()" title="Regenerate this answer">↻</button>
-        <span class="fb-thanks" id="fb-thanks">Thanks! ✨</span>
+  function appendHistoricalAi(text) {
+    hideSuggestions();
+    const win = document.getElementById('chat-window');
+    const row = document.createElement('div');
+    row.className = 'chat-row ai';
+    row.innerHTML = `
+      <div class="chat-bubble is-result">
+        <div class="bubble-head">
+          <span class="sparkle-icon">✦</span>
+          <span class="result-title">Local guide says</span>
+        </div>
+        <div class="md">${marked.parse(text)}</div>
       </div>`;
-
-    const upBtn   = el.querySelector('#fb-up');
-    const downBtn = el.querySelector('#fb-down');
-    const thanks  = el.querySelector('#fb-thanks');
-
-    async function sendFeedback(rating) {
-      upBtn.disabled = downBtn.disabled = true;
-      if (rating ===  1) upBtn.classList.add('selected-up');
-      if (rating === -1) downBtn.classList.add('selected-down');
-      thanks.classList.add('show');
-      try {
-        await fetch(`${API}/feedback`, {
-          method:  'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body:    JSON.stringify({ session_id: getSessionId(), question, rating }),
-        });
-      } catch {}
-    }
-
-    upBtn.addEventListener('click',   () => sendFeedback(1));
-    downBtn.addEventListener('click', () => sendFeedback(-1));
+    win.appendChild(row);
   }
-  function createStreamingBubble(modelName) {
-    document.getElementById('welcome-screen')?.remove();
-    const win      = document.getElementById('chat-window');
-    const modelTag = modelName ? `<span class="model-tag">${escapeHtml(modelName)}</span>` : '';
 
-    const div = document.createElement('div');
-    div.className = 'message ai';
-    div.innerHTML = `
-      <div class="avatar">🧭</div>
-      <div class="bubble">
-        <div class="bubble-meta" id="stream-meta">${modelTag}</div>
-        <div class="md-content" id="stream-content"></div>
-        <div class="sources" id="stream-sources" style="margin-top:9px"></div>
-        <div id="stream-feedback"></div>
+  function createStreamingBubble() {
+    hideSuggestions();
+    const win = document.getElementById('chat-window');
+    const row = document.createElement('div');
+    row.className = 'chat-row ai';
+    row.innerHTML = `
+      <div class="chat-bubble is-result">
+        <div class="bubble-head" id="stream-head">
+          <span class="sparkle-icon">✦</span>
+          <span class="result-title">Local guide says</span>
+        </div>
+        <div class="md" id="stream-md"><div class="typing-dots"><span></span><span></span><span></span></div></div>
+        <div class="sources" id="stream-sources"></div>
+        <div id="stream-actions"></div>
       </div>`;
-    win.appendChild(div);
-    win.scrollTop = win.scrollHeight;
-
+    win.appendChild(row);
+    scrollToBottom();
     return {
-      contentEl:  div.querySelector('#stream-content'),
-      sourcesEl:  div.querySelector('#stream-sources'),
-      metaEl:     div.querySelector('#stream-meta'),
-      feedbackEl: div.querySelector('#stream-feedback'),
+      head:    row.querySelector('#stream-head'),
+      md:      row.querySelector('#stream-md'),
+      sources: row.querySelector('#stream-sources'),
+      actions: row.querySelector('#stream-actions'),
+      bubble:  row.querySelector('.chat-bubble'),
+      row,
     };
   }
 
-  // ── Send message ──────────────────────────────────────────────────────────
-  async function sendMessage(questionOverride = null) {
-    const input = document.getElementById('user-input');
-    const btn   = document.getElementById('send-btn');
-    const q     = questionOverride !== null ? questionOverride : input.value.trim();
-    if (!q) return;
-    if (questionOverride === null) { input.value = ''; input.style.height = 'auto'; }
+  function scrollToBottom() {
+    requestAnimationFrame(() => {
+      window.scrollTo({ top: document.documentElement.scrollHeight, behavior: 'smooth' });
+    });
+  }
 
-    lastUserQuestion = q;
-    setSendBtnMode('stop');
-    currentAbortController = new AbortController();
+  // ── Source rendering ─────────────────────────────────────────────────────
+  // The merged backend emits typed dicts:
+  //   { title, type: "local" }   ← RAG hit, plain chip
+  //   { title, url, type: "web" } ← Tavily hit, clickable globe chip
+  // ChatResponse also tolerates plain strings (legacy callers / older
+  // cached entries), so we fall back to treating an unknown shape as a
+  // bare label string. Two key behaviors:
+  //   - web sources render with target="_blank" + rel="noopener"
+  //   - rel="noopener" prevents the opened tab from accessing window.opener
+  //     (a well-known minor security improvement for outbound links)
+  function renderSourcesHtml(sources) {
+    if (!sources || !sources.length) return '';
+    return sources.map(s => {
+      if (s && typeof s === 'object' && s.type === 'web') {
+        const url   = s.url || '#';
+        const label = s.title || s.url || 'Web result';
+        return `<span class="source-tag web"><a href="${escapeAttr(url)}" target="_blank" rel="noopener">${escapeHtml(label)}</a></span>`;
+      }
+      const label = (s && typeof s === 'object') ? (s.title || 'Source') : s;
+      return `<span class="source-tag">${escapeHtml(label)}</span>`;
+    }).join('');
+  }
+
+  // ── Send + stream ────────────────────────────────────────────────────────
+  function setSendMode(mode) {
+    const btn = document.getElementById('send-btn');
+    if (mode === 'stop') {
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>';
+      btn.classList.add('stopping');
+      btn.onclick = stopGeneration;
+      btn.disabled = false;
+      btn.title = 'Stop';
+    } else {
+      btn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3.4 20.4l17.5-8.5L3.4 3.4v6.6l12 1.9-12 1.9z"/></svg>';
+      btn.classList.remove('stopping');
+      btn.onclick = sendMessage;
+      btn.disabled = false;
+      btn.title = 'Send';
+    }
+  }
+  function stopGeneration() {
+    if (currentAbortController) currentAbortController.abort();
+  }
+
+  async function retryLastQuestion(question) {
+    const aiRows = document.querySelectorAll('.chat-row.ai');
+    if (aiRows.length) aiRows[aiRows.length - 1].remove();
+    await streamResponse(question, { isRetry: true });
+  }
+
+  async function sendMessage() {
+    const input = document.getElementById('user-input');
+    const q = input.value.trim();
+    if (!q) return;
+    input.value = '';
+    input.style.height = 'auto';
+
+    if (!document.getElementById('panel-ask').classList.contains('active')) {
+      switchTab('ask');
+    }
 
     const apiQuestion = injectedContext
       ? `[Context from a previous conversation:\n${injectedContext}]\n\n${q}`
       : q;
 
-    appendMessage('user', q);
-    const { contentEl, sourcesEl, metaEl, feedbackEl } = createStreamingBubble(activeModelName);
-    const win = document.getElementById('chat-window');
+    appendUserBubble(q);
+    lastSentQuestion = apiQuestion;
+    await streamResponse(apiQuestion, { isRetry: false });
+
+    if (injectedContext) clearContext();
+  }
+
+  async function streamResponse(apiQuestion, opts = {}) {
+    const { isRetry = false } = opts;
+    const { head, md, sources, actions, bubble } = createStreamingBubble();
+
+    currentAbortController = new AbortController();
+    setSendMode('stop');
 
     let streamText = '';
+    let firstToken = true;
+    let tokenCount = 0;
+    const t0 = performance.now();
+
+    clog('req', `📤 POST /chat/stream`, {
+      isRetry, model: activeModel, language: activeLanguage, session: getSessionId(),
+    });
 
     try {
       const res = await fetch(`${API}/chat/stream`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
-        body:    JSON.stringify({ session_id: getSessionId(), question: apiQuestion, model: activeModel }),
-        signal:  currentAbortController.signal,
+        body:    JSON.stringify({
+          session_id: getSessionId(),
+          question:   apiQuestion,
+          model:      activeModel,
+          language:   activeLanguage,
+          is_retry:   isRetry,
+          user_id:    userId,
+        }),
+        signal: currentAbortController.signal,
       });
 
       if (!res.ok) {
-        contentEl.textContent = `Error ${res.status}`;
-        contentEl.closest('.bubble').classList.add('error-bubble');
-        setStatus(false);
+        clog('err', `❌ HTTP ${res.status}`);
+        md.textContent = `Error ${res.status}`;
+        bubble.classList.add('is-error');
+        renderActions(actions, apiQuestion, { errored: true });
         return;
       }
 
@@ -1125,113 +2441,132 @@
         for (const part of parts) {
           if (!part.startsWith('data: ')) continue;
           let msg;
-          try { msg = JSON.parse(part.slice(6)); } catch { continue; }
+          try { msg = JSON.parse(part.slice(6)); } catch (e) {
+            clog('err', '⚠️ Bad SSE chunk', part, e);
+            continue;
+          }
 
           if (msg.type === 'token') {
+            if (firstToken) { md.innerHTML = ''; firstToken = false; }
             streamText += msg.token;
-            contentEl.textContent += msg.token;
-            win.scrollTop = win.scrollHeight;
-          } else if (msg.type === 'sources') {
-            if (msg.sources?.length) {
-              sourcesEl.innerHTML = msg.sources
-                .map(s => `<span class="source-tag">${escapeHtml(s)}</span>`).join('');
+            tokenCount++;
+            md.textContent += msg.token;
+            scrollToBottom();
+          }
+          else if (msg.type === 'sources') {
+            const isWeb = msg.sources?.some(s => s && typeof s === 'object' && s.type === 'web');
+            if (isWeb) {
+              clog('web', `🌐 Web fallback — ${msg.sources.length} source(s)`,
+                   msg.sources.map(s => s?.url || s?.title));
+              // Mark the bubble so the user can see at a glance the answer is web-sourced
+              head.insertAdjacentHTML('beforeend', '<span class="meta-tag web">🌐 web</span>');
+            } else {
+              clog('rag', `📚 RAG sources — ${msg.sources?.length ?? 0} chunk(s)`,
+                   msg.sources?.map(s => (typeof s === 'object' ? s.title : s)));
             }
-          } else if (msg.type === 'cache') {
-            metaEl.insertAdjacentHTML('beforeend', '<span class="cache-tag">⚡ cached</span>');
-          } else if (msg.type === 'low_confidence') {
-            contentEl.textContent = msg.message || 'I don\'t have enough information to answer that.';
-            const note = document.createElement('span');
-            note.className = 'confidence-note';
-            note.textContent = 'Confidence: ' + ((msg.confidence || 0) * 100).toFixed(1) + '%';
-            contentEl.after(note);
-            contentEl.closest('.bubble').classList.add('warning-bubble');
-          } else if (msg.type === 'done') {
-            if (streamText) contentEl.innerHTML = marked.parse(streamText);
-            setStatus(true);
-            msgCount += 2; updateBadge();
-            if (panelOpen) loadPanel();
-            showFeedbackButtons(feedbackEl, q);
-            if (injectedContext) clearContext();
+            sources.innerHTML = renderSourcesHtml(msg.sources);
+          }
+          else if (msg.type === 'cache') {
+            clog('cache', '⚡ Cache HIT');
+            head.insertAdjacentHTML('beforeend', '<span class="meta-tag cache">⚡ cached</span>');
+          }
+          else if (msg.type === 'low_confidence') {
+            clog('warn', `⚠️ Low confidence (${((msg.confidence||0)*100).toFixed(1)}%) — no fallback found`);
+            md.textContent = msg.message || "I don't have enough information to answer that.";
+            bubble.classList.add('is-warning');
+            const note = document.createElement('div');
+            note.style.cssText = 'margin-top:8px;font-size:11px;color:#b8930c;letter-spacing:.4px;';
+            note.textContent = `Confidence: ${((msg.confidence || 0) * 100).toFixed(1)}%`;
+            md.appendChild(note);
+          }
+          else if (msg.type === 'translation') {
+            clog('done', '🌍 Translated answer received');
+            if (msg.text) {
+              streamText = msg.text;
+              md.innerHTML = marked.parse(streamText);
+            }
+          }
+          else if (msg.type === 'done') {
+            const elapsed = ((performance.now() - t0) / 1000).toFixed(2);
+            clog('done', `✅ Done — ${tokenCount} tokens in ${elapsed}s`);
+            if (streamText && !bubble.classList.contains('is-warning')) {
+              md.innerHTML = marked.parse(streamText);
+            }
+            renderActions(actions, apiQuestion, { errored: false });
+            refreshDrawerData();
+          }
+          else {
+            clog('warn', `❓ Unknown SSE event "${msg.type}"`, msg);
           }
         }
       }
     } catch (err) {
       if (err.name === 'AbortError') {
-        // User hit stop — render what we got and tag it
-        if (streamText.trim()) {
-          contentEl.innerHTML = marked.parse(streamText + '\n\n_[Interrupted]_');
-          showFeedbackButtons(feedbackEl, q);   // still allow retry
-          msgCount += 2; updateBadge();
-        } else {
-          contentEl.closest('.message')?.remove();   // nothing to show
-        }
+        clog('warn', `🛑 Aborted after ${tokenCount} tokens`);
+        if (streamText) md.innerHTML = marked.parse(streamText);
+        head.insertAdjacentHTML('beforeend', '<span class="meta-tag stopped">⏹ stopped</span>');
+        renderActions(actions, apiQuestion, { errored: false, interrupted: true });
       } else {
-        contentEl.textContent = 'Could not connect to the server.';
-        contentEl.closest('.bubble').classList.add('error-bubble');
-        setStatus(false);
+        clog('err', `💥 Network/fetch error: ${err.message}`, err);
+        md.textContent = 'Could not connect to the server.';
+        bubble.classList.add('is-error');
+        renderActions(actions, apiQuestion, { errored: true });
       }
     } finally {
       currentAbortController = null;
-      setSendBtnMode('send');
-      input.focus();
+      setSendMode('send');
+      document.getElementById('user-input').focus();
     }
   }
 
-  function setSendBtnMode(mode) {
-    const btn = document.getElementById('send-btn');
-    if (mode === 'stop') {
-      btn.innerHTML = '■';
-      btn.title = 'Stop generating';
-      btn.classList.add('stop-mode');
-      btn.onclick = stopStreaming;
-      btn.disabled = false;
-    } else {
-      btn.innerHTML = '➤';
-      btn.title = 'Send';
-      btn.classList.remove('stop-mode');
-      btn.onclick = () => sendMessage();
-    }
-  }
+  function renderActions(el, question, opts = {}) {
+    const { errored = false, interrupted = false } = opts;
+    const showFeedback = !errored && !interrupted;
+    el.innerHTML = `
+      <div class="action-row">
+        ${showFeedback ? `
+          <span class="label">Helpful?</span>
+          <button class="action-btn up"   data-rating="1"  aria-label="Helpful">👍</button>
+          <button class="action-btn down" data-rating="-1" aria-label="Not helpful">👎</button>
+          <span class="thanks">Thanks!</span>
+        ` : ''}
+        <button class="retry-btn" title="Regenerate this answer">↻ Retry</button>
+      </div>`;
 
-  function stopStreaming() {
-    if (currentAbortController) currentAbortController.abort();
-  }
-
-  async function retryLast() {
-    try {
-      const res = await fetch(`${API}/sessions/${getSessionId()}/retry_last`, { method: 'POST' });
-      const data = await res.json();
-      const question = data.last_question || lastUserQuestion;
-      if (!question) return;
-
-      // Remove the last AI bubble, then the last user bubble (in that order)
-      const msgs = document.querySelectorAll('#chat-window .message');
-      for (let i = msgs.length - 1; i >= 0; i--) {
-        if (msgs[i].classList.contains('ai')) { msgs[i].remove(); break; }
+    if (showFeedback) {
+      const up    = el.querySelector('.action-btn.up');
+      const down  = el.querySelector('.action-btn.down');
+      const thanks= el.querySelector('.thanks');
+      async function sendFeedback(rating) {
+        up.disabled = down.disabled = true;
+        (rating === 1 ? up : down).classList.add('selected');
+        thanks.classList.add('show');
+        try {
+          await fetch(`${API}/feedback`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body:    JSON.stringify({ session_id: getSessionId(), question, rating }),
+          });
+        } catch {}
       }
-      const msgs2 = document.querySelectorAll('#chat-window .message');
-      for (let i = msgs2.length - 1; i >= 0; i--) {
-        if (msgs2[i].classList.contains('user')) { msgs2[i].remove(); break; }
-      }
-      msgCount = Math.max(0, msgCount - 2);
-      updateBadge();
-
-      sendMessage(question);
-    } catch (e) {
-      console.error('Retry failed', e);
+      up.addEventListener('click',   () => sendFeedback(1));
+      down.addEventListener('click', () => sendFeedback(-1));
     }
+    el.querySelector('.retry-btn').addEventListener('click',
+      () => retryLastQuestion(question));
   }
 
-  function fillAndSend(el) {
-    document.getElementById('user-input').value = el.textContent.replace(/^[\p{Emoji}\s]+/u, '').trim();
-    sendMessage();
-  }
-
+  // ── Input UX ─────────────────────────────────────────────────────────────
   const ta = document.getElementById('user-input');
-  ta.addEventListener('input', () => { ta.style.height = 'auto'; ta.style.height = Math.min(ta.scrollHeight, 120) + 'px'; });
-  ta.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } });
+  ta.addEventListener('input', () => {
+    ta.style.height = 'auto';
+    ta.style.height = Math.min(ta.scrollHeight, 140) + 'px';
+  });
+  ta.addEventListener('keydown', e => {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); }
+  });
 
-  // ── Helpers ───────────────────────────────────────────────────────────────
+  // ── Helpers ──────────────────────────────────────────────────────────────
   function escapeHtml(s) {
     return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
   }
@@ -1239,17 +2574,221 @@
     return String(s).replace(/'/g,'&#39;').replace(/"/g,'&quot;');
   }
 
-  function setStatus(on) {
-    document.getElementById('status-text').textContent = on ? 'Live Guide' : 'Offline';
-    document.querySelector('.city-badge-dot').style.background = on ? '#7ddd9e' : '#dd7d7d';
+  // ══════════════════════════════════════════════════════════════════════════
+  // Onboarding + personalization
+  // ══════════════════════════════════════════════════════════════════════════
+
+  const MODE_META = {
+    local:    { emoji: '🏠', title: 'Local',           desc: 'I live here — skip the basics' },
+    tourist:  { emoji: '🧳', title: 'Tourist',         desc: 'Visiting, maybe for the first time' },
+    student:  { emoji: '🎓', title: 'Student',         desc: 'Studying here, watching the budget' },
+    nomad:    { emoji: '💻', title: 'Digital nomad',   desc: 'Working remotely, here a while' },
+    business: { emoji: '💼', title: 'Business / investor', desc: 'Here for work, value efficiency' },
+  };
+  const PRICE_META = {
+    budget:  { emoji: '🪙', title: 'Budget',   desc: 'Cheap and cheerful' },
+    mid:     { emoji: '💳', title: 'Mid-range', desc: 'Comfortable, good value' },
+    premium: { emoji: '✨', title: 'Premium',  desc: 'Higher quality, worth it' },
+    luxury:  { emoji: '👑', title: 'Luxury',   desc: 'Top-tier, price no object' },
+  };
+  const INTEREST_META = {
+    food: '🍽️ Food', coffee: '☕ Coffee', nightlife: '🍸 Nightlife', art: '🎨 Art',
+    theatre: '🎭 Theatre', sports: '⚽ Sports', history: '🏛️ History', nature: '🌿 Nature',
+    shopping: '🛍️ Shopping', photography: '📷 Photography spots', live_music: '🎶 Live music',
+    family: '👨‍👩‍👧 Family activities', study_work_cafes: '💻 Study/work cafés',
+  };
+  const CURRENCY_META = {
+    ALL: 'Lek', EUR: 'Euro', USD: 'Dollar', GBP: 'Pound',
+    TRY: 'Lira', CHF: 'Franc', CAD: 'CA$', AUD: 'AU$',
+  };
+
+  function titleCase(s) {
+    return String(s).replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+  }
+
+  async function initPersonalization() {
+    let prefs = null;
+    try {
+      const [optRes, prefRes] = await Promise.all([
+        fetch(`${API}/preferences/options`),
+        fetch(`${API}/preferences/${userId}`),
+      ]);
+      prefOptions = await optRes.json();
+      prefs       = await prefRes.json();
+    } catch {
+      return;
+    }
+
+    renderPrefSummary(prefs);
+
+    onboardDraft = {
+      mode:       prefs.mode       || null,
+      price_tier: prefs.price_tier || null,
+      interests:  prefs.interests  || [],
+      currency:   prefs.currency   || null,
+    };
+
+    if (!prefs.onboarded) {
+      openOnboarding(false);
+    }
+  }
+
+  function buildOnboardingUI() {
+    if (!prefOptions) return;
+
+    document.getElementById('onboard-modes').innerHTML = prefOptions.modes.map(m => {
+      const meta = MODE_META[m] || { emoji: '•', title: titleCase(m), desc: '' };
+      return optRowHtml('mode', m, meta.emoji, meta.title, meta.desc);
+    }).join('');
+
+    document.getElementById('onboard-prices').innerHTML = prefOptions.price_tiers.map(p => {
+      const meta = PRICE_META[p] || { emoji: '•', title: titleCase(p), desc: '' };
+      return optRowHtml('price_tier', p, meta.emoji, meta.title, meta.desc);
+    }).join('');
+
+    document.getElementById('onboard-interests').innerHTML = prefOptions.interests.map(i => {
+      const label = INTEREST_META[i] || titleCase(i);
+      const sel = onboardDraft.interests.includes(i) ? ' selected' : '';
+      return `<button class="opt-chip${sel}" data-interest="${i}" onclick="toggleInterest('${i}')">${label}</button>`;
+    }).join('');
+
+    document.getElementById('onboard-currencies').innerHTML = prefOptions.currencies.map(c => {
+      const name = CURRENCY_META[c] || c;
+      const sel = onboardDraft.currency === c ? ' selected' : '';
+      return `<button class="opt-cell${sel}" data-currency="${c}" onclick="selectCurrency('${c}')">
+                <div class="cur-code">${c}</div><div class="cur-name">${name}</div>
+              </button>`;
+    }).join('');
+
+    refreshSingleSelectUI();
+  }
+
+  function optRowHtml(field, value, emoji, title, desc) {
+    const sel = onboardDraft[field] === value ? ' selected' : '';
+    return `<button class="opt-row${sel}" data-field="${field}" data-value="${value}"
+                    onclick="selectSingle('${field}','${value}')">
+              <span class="opt-emoji">${emoji}</span>
+              <span class="opt-text">
+                <span class="opt-title">${title}</span>
+                ${desc ? `<span class="opt-desc">${desc}</span>` : ''}
+              </span>
+              <span class="opt-check">✓</span>
+            </button>`;
+  }
+
+  function selectSingle(field, value) {
+    onboardDraft[field] = (onboardDraft[field] === value) ? null : value;
+    refreshSingleSelectUI();
+  }
+  function toggleInterest(i) {
+    const idx = onboardDraft.interests.indexOf(i);
+    if (idx === -1) onboardDraft.interests.push(i);
+    else            onboardDraft.interests.splice(idx, 1);
+    const el = document.querySelector(`.opt-chip[data-interest="${i}"]`);
+    if (el) el.classList.toggle('selected');
+  }
+  function selectCurrency(c) {
+    onboardDraft.currency = (onboardDraft.currency === c) ? null : c;
+    document.querySelectorAll('.opt-cell').forEach(el =>
+      el.classList.toggle('selected', el.dataset.currency === onboardDraft.currency));
+  }
+  function refreshSingleSelectUI() {
+    document.querySelectorAll('.opt-row').forEach(el => {
+      const f = el.dataset.field, v = el.dataset.value;
+      el.classList.toggle('selected', onboardDraft[f] === v);
+    });
+  }
+
+  function showStep(n) {
+    onboardStep = Math.max(0, Math.min(ONBOARD_STEPS - 1, n));
+    document.querySelectorAll('.onboard-step').forEach(s =>
+      s.classList.toggle('active', Number(s.dataset.step) === onboardStep));
+    document.querySelectorAll('#onboard-progress .dot').forEach((d, i) => {
+      d.classList.toggle('active', i === onboardStep);
+      d.classList.toggle('done',   i <  onboardStep);
+    });
+    document.getElementById('onboard-back').style.display = onboardStep === 0 ? 'none' : '';
+    document.getElementById('onboard-next').textContent =
+      onboardStep === ONBOARD_STEPS - 1 ? (onboardEditMode ? 'Save' : 'Finish') : 'Continue';
+  }
+  function onboardNext() {
+    savePrefsDraft();
+    if (onboardStep < ONBOARD_STEPS - 1) showStep(onboardStep + 1);
+    else finishOnboarding();
+  }
+  function onboardBack() { showStep(onboardStep - 1); }
+  function onboardSkip() {
+    savePrefsDraft();
+    finishOnboarding(true);
+  }
+
+  async function savePrefsDraft() {
+    const body = {
+      mode:       onboardDraft.mode,
+      price_tier: onboardDraft.price_tier,
+      interests:  onboardDraft.interests,
+      currency:   onboardDraft.currency,
+    };
+    try {
+      const res = await fetch(`${API}/preferences/${userId}`, {
+        method:  'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify(body),
+      });
+      if (res.ok) renderPrefSummary(await res.json());
+    } catch {}
+  }
+
+  function finishOnboarding(skipped = false) {
+    closeOnboarding();
+    showToast(skipped ? 'You can personalize anytime in settings' : 'Preferences saved ✨');
+  }
+
+  function openOnboarding(editMode) {
+    onboardEditMode = !!editMode;
+    if (!prefOptions) { showToast('Personalization unavailable right now'); return; }
+    buildOnboardingUI();
+    onboardStep = 0;
+    showStep(0);
+    document.getElementById('onboard-overlay').classList.add('open');
+    closeDrawer();
+  }
+  function closeOnboarding() {
+    document.getElementById('onboard-overlay').classList.remove('open');
+  }
+
+  async function resetOnboarding() {
+    if (!confirm('Reset all your preferences?')) return;
+    try {
+      await fetch(`${API}/preferences/${userId}`, { method: 'DELETE' });
+    } catch {}
+    onboardDraft = { mode: null, price_tier: null, interests: [], currency: null };
+    renderPrefSummary(null);
+    showToast('Preferences reset');
+  }
+
+  function renderPrefSummary(prefs) {
+    const el = document.getElementById('pref-summary');
+    if (!el) return;
+    if (!prefs || !(prefs.mode || prefs.price_tier || (prefs.interests || []).length || prefs.currency)) {
+      el.innerHTML = '<span class="pref-tag empty">Not set yet</span>';
+      return;
+    }
+    const tags = [];
+    if (prefs.mode)       tags.push((MODE_META[prefs.mode]?.title)  || titleCase(prefs.mode));
+    if (prefs.price_tier) tags.push((PRICE_META[prefs.price_tier]?.title) || titleCase(prefs.price_tier));
+    if (prefs.currency)   tags.push(prefs.currency);
+    (prefs.interests || []).forEach(i => tags.push((INTEREST_META[i] || titleCase(i)).replace(/^[^\s]+\s/, '')));
+    el.innerHTML = tags.map(t => `<span class="pref-tag">${escapeHtml(t)}</span>`).join('');
   }
 
   async function checkHealth() {
-    try { setStatus((await fetch(`${API}/health`, { signal: AbortSignal.timeout(3000) })).ok); }
-    catch { setStatus(false); }
+    try { await fetch(`${API}/health`, { signal: AbortSignal.timeout(3000) }); }
+    catch { showToast('Backend offline'); }
   }
   checkHealth();
-  setInterval(checkHealth, 30000);
+  initPersonalization();
 </script>
+
 </body>
 </html>
