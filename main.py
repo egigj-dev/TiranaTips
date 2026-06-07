@@ -1383,27 +1383,54 @@ def search_place(request: Request, req: PlaceSearchRequest):
 
     query = f"{req.name} Tirana Albania"
 
+    serp_params = {
+        "engine":       "google_maps",
+        "q":            query,
+        "ll":           "@41.3275459,19.8186982,14z",  # Tirana lat/lng
+        "type":         "search",
+        "api_key":      SERP_API_KEY,
+        "hl":           "en",
+    }
+
+    # ── DEBUG: log the full request being sent to SerpAPI ──────────────────
+    safe_params = {k: (v if k != "api_key" else f"{v[:6]}…{v[-4:]}") for k, v in serp_params.items()}
+    full_url = requests.Request("GET", "https://serpapi.com/search", params=serp_params).prepare().url
+    print(f"[PlaceSearch] REQUEST  place_name={req.name!r}")
+    print(f"[PlaceSearch] REQUEST  params={json.dumps(safe_params, ensure_ascii=False)}")
+    print(f"[PlaceSearch] REQUEST  full_url={full_url}")
+
     try:
         resp = requests.get(
             "https://serpapi.com/search",
-            params={
-                "engine":       "google_maps",
-                "q":            query,
-                "ll":           "@41.3275459,19.8186982,14z",  # Tirana lat/lng
-                "type":         "search",
-                "api_key":      SERP_API_KEY,
-                "hl":           "en",
-            },
+            params=serp_params,
             timeout=12,
         )
+        print(f"[PlaceSearch] RESPONSE http_status={resp.status_code}")
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
         print(f"[PlaceSearch] SerpAPI request failed: {e}")
         raise HTTPException(status_code=502, detail=f"Place search failed: {e}")
 
-    results = data.get("local_results", [])
+    # ── DEBUG: log what SerpAPI returned ───────────────────────────────────
+    top_level_keys = list(data.keys())
+    search_info    = data.get("search_information", {})
+    local_results  = data.get("local_results", [])
+    error_msg      = data.get("error")          # SerpAPI returns {"error": "..."} on bad key / quota
+
+    print(f"[PlaceSearch] RESPONSE top_level_keys={top_level_keys}")
+    if error_msg:
+        print(f"[PlaceSearch] RESPONSE serpapi_error={error_msg!r}")
+    print(f"[PlaceSearch] RESPONSE search_information={json.dumps(search_info, ensure_ascii=False)}")
+    print(f"[PlaceSearch] RESPONSE local_results_count={len(local_results)}")
+    for i, r in enumerate(local_results[:5]):
+        print(f"[PlaceSearch] RESPONSE local_results[{i}] title={r.get('title')!r}  "
+              f"address={r.get('address')!r}  rating={r.get('rating')}  "
+              f"place_id={r.get('place_id')!r}")
+
+    results = local_results
     if not results:
+        print(f"[PlaceSearch] no local_results — returning found=False")
         return {"found": False, "place": None}
 
     # Pick the first result that roughly matches the name
@@ -1412,9 +1439,11 @@ def search_place(request: Request, req: PlaceSearchRequest):
     for r in results:
         if name_lower in (r.get("title", "")).lower():
             place_raw = r
+            print(f"[PlaceSearch] MATCH   matched title={r.get('title')!r}")
             break
     if not place_raw:
         place_raw = results[0]  # fall back to first result
+        print(f"[PlaceSearch] MATCH   no name match — falling back to results[0] title={place_raw.get('title')!r}")
 
     # Build hours summary
     hours_raw = place_raw.get("operating_hours", {})
