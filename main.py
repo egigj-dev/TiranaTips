@@ -1428,49 +1428,87 @@ def search_place(request: Request, req: PlaceSearchRequest):
               f"address={r.get('address')!r}  rating={r.get('rating')}  "
               f"place_id={r.get('place_id')!r}")
 
-    results = local_results
-    if not results:
-        print(f"[PlaceSearch] no local_results — returning found=False")
-        return {"found": False, "place": None}
+    # ── SerpAPI returns EITHER local_results (list) OR place_results (single object)
+    # When Google identifies an exact match it switches to type="place" and puts
+    # everything under place_results instead of local_results.
+    # search_information.local_results_state will say:
+    #   "Showing results for type: \"place\" instead of type: \"search\""
+    place_results = data.get("place_results")
 
-    # Pick the first result that roughly matches the name
-    place_raw = None
-    name_lower = req.name.lower()
-    for r in results:
-        if name_lower in (r.get("title", "")).lower():
-            place_raw = r
-            print(f"[PlaceSearch] MATCH   matched title={r.get('title')!r}")
-            break
-    if not place_raw:
-        place_raw = results[0]  # fall back to first result
-        print(f"[PlaceSearch] MATCH   no name match — falling back to results[0] title={place_raw.get('title')!r}")
+    if results:
+        # Normal list path — pick the best-matching entry
+        place_raw = None
+        name_lower = req.name.lower()
+        for r in results:
+            if name_lower in (r.get("title", "")).lower():
+                place_raw = r
+                print(f"[PlaceSearch] MATCH   matched title={r.get('title')!r}")
+                break
+        if not place_raw:
+            place_raw = results[0]
+            print(f"[PlaceSearch] MATCH   no name match — falling back to results[0] title={place_raw.get('title')!r}")
 
-    # Build hours summary
-    hours_raw = place_raw.get("operating_hours", {})
-    hours_list = []
-    for day, times in hours_raw.items():
-        hours_list.append({"day": day, "hours": times})
+        hours_raw = place_raw.get("operating_hours", {})
+        hours_list = [{"day": d, "hours": t} for d, t in hours_raw.items()]
 
-    # Thumbnail: use first thumbnail if available
-    thumbnail = place_raw.get("thumbnail", None)
-
-    place = {
-        "name":          place_raw.get("title"),
-        "rating":        place_raw.get("rating"),
-        "reviews":       place_raw.get("reviews"),
-        "address":       place_raw.get("address"),
-        "phone":         place_raw.get("phone"),
-        "website":       place_raw.get("website"),
-        "type":          place_raw.get("type"),
-        "hours":         hours_list,
-        "open_now":      place_raw.get("open_state"),
-        "price":         place_raw.get("price"),
-        "thumbnail":     thumbnail,
-        "maps_url":      place_raw.get("links", {}).get("directions")
+        place = {
+            "name":      place_raw.get("title"),
+            "rating":    place_raw.get("rating"),
+            "reviews":   place_raw.get("reviews"),
+            "address":   place_raw.get("address"),
+            "phone":     place_raw.get("phone"),
+            "website":   place_raw.get("website"),
+            "type":      place_raw.get("type"),
+            "hours":     hours_list,
+            "open_now":  place_raw.get("open_state"),
+            "price":     place_raw.get("price"),
+            "thumbnail": place_raw.get("thumbnail"),
+            "maps_url":  place_raw.get("links", {}).get("directions")
                          or f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(query)}",
-        "place_id":      place_raw.get("place_id"),
-        "gps":           place_raw.get("gps_coordinates"),
-    }
+            "place_id":  place_raw.get("place_id"),
+            "gps":       place_raw.get("gps_coordinates"),
+        }
+
+    elif place_results:
+        # Single-place path — Google found an exact match
+        print(f"[PlaceSearch] MATCH   place_results path — title={place_results.get('title')!r}")
+
+        # place_results hours come as a list of single-key dicts: [{"monday": "9 AM–10 PM"}, ...]
+        # (seen inside at_this_place sub-items; top-level hotel may use operating_hours or omit)
+        hours_raw = place_results.get("operating_hours", {})
+        hours_list = [{"day": d, "hours": t} for d, t in hours_raw.items()]
+
+        # Price: use cheapest booking offer if available
+        pricing = place_results.get("pricing", {})
+        price_str = None
+        all_offers = pricing.get("all_options", []) or pricing.get("offers", [])
+        if all_offers:
+            cheapest = min(all_offers, key=lambda o: float(o.get("price", "$9999").replace("$", "").replace(",", "")), default=None)
+            if cheapest:
+                price_str = f"from {cheapest['price']} / night ({cheapest['source']})"
+
+        place = {
+            "name":      place_results.get("title"),
+            "rating":    place_results.get("rating"),
+            "reviews":   place_results.get("reviews"),
+            "address":   place_results.get("address"),
+            "phone":     place_results.get("phone"),
+            "website":   place_results.get("website"),
+            "type":      ", ".join(place_results.get("type", [])) or None,
+            "hours":     hours_list,
+            "open_now":  place_results.get("open_state"),
+            "price":     price_str,
+            "thumbnail": place_results.get("thumbnail"),
+            "maps_url":  f"https://www.google.com/maps/place/?q=place_id:{place_results['place_id']}"
+                         if place_results.get("place_id")
+                         else f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(query)}",
+            "place_id":  place_results.get("place_id"),
+            "gps":       place_results.get("gps_coordinates"),
+        }
+
+    else:
+        print(f"[PlaceSearch] no local_results and no place_results — returning found=False")
+        return {"found": False, "place": None}
 
     return {"found": True, "place": place}
 
