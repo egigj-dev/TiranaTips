@@ -48,6 +48,7 @@ CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
 QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL")
 TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback disabled if unset
+SERP_API_KEY       = "c9c66c8c445e897aa87ddebbbf3eac97fe7ac55d916ee8fd16820e10f927a019"       # todo: get from env
 
 COLLECTION_NAME  = "wiki_banking"
 RERANK_MODEL     = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
@@ -1358,6 +1359,91 @@ def reset_preferences(user_id: str = Path(..., pattern=USER_ID_PATTERN)):
     """
     deleted = delete_user_preferences(user_id)
     return {"deleted": deleted}
+
+
+# ---------------------------------------------------------------------------
+# SerpAPI Places endpoint
+# ---------------------------------------------------------------------------
+# Accepts a place name, searches Google Maps via SerpAPI scoped to Tirana,
+# and returns structured data for the frontend place card.
+
+class PlaceSearchRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=200)
+
+@app.post("/places/search")
+@limiter.limit("30/minute")
+def search_place(request: Request, req: PlaceSearchRequest):
+    """
+    Search Google Maps for a place by name, scoped to Tirana, Albania.
+    Returns structured data for the place card panel.
+    Requires SERP_API_KEY in the environment.
+    """
+    if not SERP_API_KEY:
+        raise HTTPException(status_code=503, detail="Place search not configured (SERP_API_KEY missing)")
+
+    query = f"{req.name} Tirana Albania"
+
+    try:
+        resp = requests.get(
+            "https://serpapi.com/search",
+            params={
+                "engine":       "google_maps",
+                "q":            query,
+                "ll":           "@41.3275459,19.8186982,14z",  # Tirana lat/lng
+                "type":         "search",
+                "api_key":      SERP_API_KEY,
+                "hl":           "en",
+            },
+            timeout=12,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+    except Exception as e:
+        print(f"[PlaceSearch] SerpAPI request failed: {e}")
+        raise HTTPException(status_code=502, detail=f"Place search failed: {e}")
+
+    results = data.get("local_results", [])
+    if not results:
+        return {"found": False, "place": None}
+
+    # Pick the first result that roughly matches the name
+    place_raw = None
+    name_lower = req.name.lower()
+    for r in results:
+        if name_lower in (r.get("title", "")).lower():
+            place_raw = r
+            break
+    if not place_raw:
+        place_raw = results[0]  # fall back to first result
+
+    # Build hours summary
+    hours_raw = place_raw.get("operating_hours", {})
+    hours_list = []
+    for day, times in hours_raw.items():
+        hours_list.append({"day": day, "hours": times})
+
+    # Thumbnail: use first thumbnail if available
+    thumbnail = place_raw.get("thumbnail", None)
+
+    place = {
+        "name":          place_raw.get("title"),
+        "rating":        place_raw.get("rating"),
+        "reviews":       place_raw.get("reviews"),
+        "address":       place_raw.get("address"),
+        "phone":         place_raw.get("phone"),
+        "website":       place_raw.get("website"),
+        "type":          place_raw.get("type"),
+        "hours":         hours_list,
+        "open_now":      place_raw.get("open_state"),
+        "price":         place_raw.get("price"),
+        "thumbnail":     thumbnail,
+        "maps_url":      place_raw.get("links", {}).get("directions")
+                         or f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(query)}",
+        "place_id":      place_raw.get("place_id"),
+        "gps":           place_raw.get("gps_coordinates"),
+    }
+
+    return {"found": True, "place": place}
 
 
 def _is_onboarded(prefs: dict) -> bool:
