@@ -1,0 +1,47 @@
+# Keep the build context lean and SECRET-FREE. COPY . . does not respect
+# .gitignore, so anything not listed here gets baked into image layers.
+
+# ── Secrets — MUST never enter an image layer ──
+.env
+_env
+*.env
+.env.*
+
+# ── Persistent data (mounted at runtime, not baked) ──
+data/
+model_cache/
+*.db
+*.sqlite
+*.dump
+
+# ── Service data volumes ──
+qdrant_storage/
+chroma_db/
+postgres_data/
+wiki_data/
+wikijs-backup.dump
+
+# ── Python / caches ──
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+env/
+.cache/
+models/
+
+# ── VCS / IDE / OS ──
+.git/
+.gitignore
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Deploy infra (runs on host, not in image) ──
+deploy_webhook.py
+deploy.log
+
+# ── Notebooks / dev-only ──
+*.ipynb

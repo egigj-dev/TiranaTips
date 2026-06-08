@@ -36,19 +36,24 @@ services:
       - ./qdrant_storage:/qdrant/storage
 
   api:
-    image: python:3.11-slim
+    build: .
     container_name: tirantips-api
     restart: unless-stopped
     working_dir: /app
     ports:
       - "8000:8000"
     volumes:
-      - .:/app
+      # Code is baked into the image; only PERSISTENT DATA is mounted so it
+      # survives container recreates on deploy. SQLite (chat_history.db + WAL
+      # side-files) lives here. Code is intentionally NOT mounted in prod.
+      - ./data:/app/data
+      # Model cache (HuggingFace cross-encoder, fastembed). Without this, the
+      # ~1-2GB of models re-download into the container's writable layer on
+      # every recreate and bloat the disk. Mounting /root/.cache persists them
+      # across deploys — downloaded once, reused forever.
+      - ./model_cache:/root/.cache
     env_file:
       - .env
-    command: >
-      sh -c "pip install -r requirements.txt &&
-             uvicorn main:app --host 0.0.0.0 --port 8000"
     depends_on:
       - wikijs
       - qdrant

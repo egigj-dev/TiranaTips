@@ -48,6 +48,7 @@ wikijs-backup.dump
 validate.py
 validation_reports
 deploy.log
+model_cache/
 
 # ── Old Files ──
 chat.py

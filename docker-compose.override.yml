@@ -1,0 +1,20 @@
+# docker-compose.override.yml — DEV ONLY.
+#
+# Compose auto-merges this on top of docker-compose.yml when you run
+# `docker compose up` with no -f flags. It restores the live bind mount so you
+# can edit code on the host and see it immediately (no rebuild for code changes).
+#
+# Deps still come from the built image — only CODE is mounted, so you get fast
+# iteration without re-installing packages. If you change requirements.txt,
+# rebuild: `docker compose build api`.
+#
+# PRODUCTION must bypass this file explicitly:
+#     docker compose -f docker-compose.yml up -d --force-recreate api
+# (The deploy webhook already does exactly that.)
+
+services:
+  api:
+    volumes:
+      - .:/app
+    command: >
+      uvicorn main:app --host 0.0.0.0 --port 8000 --reload

@@ -12,3 +12,7 @@ optimum[onnxruntime]
 qdrant-client
 apscheduler
 sentence-transformers
+beautifulsoup4
+lxml
+python-dateutil
+playwright

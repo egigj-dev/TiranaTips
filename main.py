@@ -8,7 +8,7 @@ import json
 import asyncio
 import requests
 import httpx
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 from dotenv import load_dotenv
 from contextlib import asynccontextmanager
@@ -32,7 +32,7 @@ from database import (save_message, get_history, save_summary, get_summary,
                        rename_session, get_session_name,
                        save_feedback, get_feedback_stats,
                        get_user_preferences, save_user_preferences,
-                       delete_user_preferences)
+                       delete_user_preferences, query_events)
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -48,7 +48,7 @@ CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
 QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL")
 TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback disabled if unset
-SERP_API_KEY       = "c9c66c8c445e897aa87ddebbbf3eac97fe7ac55d916ee8fd16820e10f927a019"       # todo: get from env
+SERP_API_KEY       = os.getenv("SERP_API_KEY")
 
 COLLECTION_NAME  = "wiki_banking"
 RERANK_MODEL     = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
@@ -217,7 +217,46 @@ def web_search(question: str) -> tuple[str, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# Translation layer (LLM-based, DeepSeek V3 via OpenRouter)
+# Events lookup (local SQLite, populated by ingestion/run.py)
+# ---------------------------------------------------------------------------
+# For time-sensitive event queries we prefer our OWN ingested events over a
+# generic web search: they're current, structured, and carry real ticket links.
+# Returns ("", []) when there are no upcoming events, so the caller falls
+# through to the web-search fallback exactly as before.
+
+def get_events_context(
+    question: str, days_ahead: int = 30, limit: int = 12,
+) -> tuple[str, list[dict]]:
+    today   = _now_tirana().date()
+    horizon = today + timedelta(days=days_ahead)
+    events  = query_events(
+        date_from=today.isoformat(),
+        date_to=horizon.isoformat(),
+        canonical_only=True,
+        limit=limit,
+    )
+    if not events:
+        return "", []
+
+    lines:   list[str]  = []
+    sources: list[dict] = []
+    for e in events:
+        day   = (e.get("start_date") or "")[:10]
+        parts = [f"{e['title']} — {day}"]
+        if e.get("municipality"):
+            parts.append(f"in {e['municipality']}")
+        if e.get("category"):
+            parts.append(f"({e['category']})")
+        line = ", ".join(parts)
+        if e.get("ticket_url"):
+            line += f" — tickets: {e['ticket_url']}"
+        lines.append("- " + line)
+        # Cap source pills so the bubble doesn't overflow; context keeps all.
+        if e.get("source_url") and len(sources) < 6:
+            sources.append({"title": e["title"], "url": e["source_url"], "type": "event"})
+
+    context = "UPCOMING EVENTS IN TIRANA (from local listings):\n" + "\n".join(lines)
+    return context, sources
 # ---------------------------------------------------------------------------
 # Translates the user question to English before retrieval (optimal for the
 # embedding model and BM25), then translates the English answer back to the
@@ -1052,7 +1091,10 @@ async def chat_stream(request: Request, req: ChatRequest):
     # Retrieval: RAG or web fallback
     is_web = False
     if _is_time_sensitive(english_question):
-        context, sources, confidence, best_raw = "", [], 0.0, -999.0
+        context, sources = await asyncio.to_thread(get_events_context, english_question)
+        # Local events found → mark high-confidence so the web fallback is skipped.
+        # Empty → keep the old zeroed scores so it falls through to web search.
+        confidence, best_raw = (1.0, 999.0) if context else (0.0, -999.0)
     else:
         context, sources, confidence, best_raw = await asyncio.to_thread(
             retrieve_context, english_question
@@ -1162,7 +1204,8 @@ def chat(request: Request, req: ChatRequest):
 
     is_web = False
     if _is_time_sensitive(english_question):
-        context, sources, confidence, best_raw = "", [], 0.0, -999.0
+        context, sources = get_events_context(english_question)
+        confidence, best_raw = (1.0, 999.0) if context else (0.0, -999.0)
     else:
         context, sources, confidence, best_raw = retrieve_context(english_question)
 

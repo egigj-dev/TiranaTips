@@ -1,7 +1,15 @@
+import os
+import json
 import sqlite3
 from datetime import datetime
 
-DB_PATH = "chat_history.db"
+# Anchor the DB to a data/ subdir next to this file. In prod the code is baked
+# into the image (ephemeral), so the DB MUST live on a mounted volume or it gets
+# wiped on every container recreate. data/ is bind-mounted in docker-compose.yml;
+# keeping the DB there (not at /app root) is what makes it survive deploys.
+_DATA_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data")
+os.makedirs(_DATA_DIR, exist_ok=True)
+DB_PATH = os.path.join(_DATA_DIR, "chat_history.db")
 
 def init_db():
     """Krijon tabelat nëse nuk ekzistojnë."""
@@ -42,29 +50,51 @@ def init_db():
             updated_at   TEXT NOT NULL
         )
     """)
-    # user_preferences: one row per user, holds onboarding choices.
-    # user_id is an anonymous UUID generated client-side and stored in
-    # localStorage — no auth yet. When we add real accounts later, user_id
-    # becomes the account ID and this table doesn't change shape.
-    #
-    # interests is a JSON-encoded list (e.g. '["food","coffee","art"]') —
-    # storing as a single column avoids a join table for a list that will
-    # change over time as we add/remove interest categories.
-    #
-    # All fields are nullable so users who skip onboarding (the "Maybe
-    # later" path) still have a valid row; null means "no filter applied".
+    # user_preferences: anonymous per-user personalization set during onboarding.
+    # interests is a JSON-encoded list; location_ok is 0/1/NULL. Partial updates
+    # are handled in save_user_preferences (None preserves, ""/[] clears).
     c.execute("""
         CREATE TABLE IF NOT EXISTS user_preferences (
             user_id     TEXT PRIMARY KEY,
-            mode        TEXT,         -- 'local' | 'tourist' | 'student' | 'nomad' | 'business'
-            currency    TEXT,         -- ISO 4217 code: 'EUR' | 'USD' | 'GBP' | 'TRY' | 'ALL' | ...
-            price_tier  TEXT,         -- 'budget' | 'mid' | 'premium' | 'luxury'
-            interests   TEXT,         -- JSON array, e.g. '["food","art"]'
-            location_ok INTEGER,      -- 0/1, whether the user enabled geolocation
+            mode        TEXT,
+            currency    TEXT,
+            price_tier  TEXT,
+            interests   TEXT,
+            location_ok INTEGER,
             created_at  TEXT NOT NULL,
             updated_at  TEXT NOT NULL
         )
     """)
+    # events: structured row-per-event store, populated by events_ingestion.py.
+    # UNIQUE(source, external_id) lets us re-run scrapers idempotently — the same
+    # event from the same source upserts in place rather than duplicating.
+    # dedup_key collapses the SAME event seen across DIFFERENT sources (e.g. TEA
+    # and Vivere both listing Bike Fest). We keep all rows but mark one canonical.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS events (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            source        TEXT    NOT NULL,
+            external_id   TEXT    NOT NULL,
+            title         TEXT    NOT NULL,
+            description   TEXT,
+            category      TEXT,
+            municipality  TEXT,
+            start_date    TEXT    NOT NULL,   -- ISO 8601
+            end_date      TEXT,
+            lat           REAL,
+            lon           REAL,
+            image_url     TEXT,
+            ticket_url    TEXT,
+            source_url    TEXT,
+            dedup_key     TEXT,
+            is_canonical  INTEGER DEFAULT 1,  -- 0 = collapsed duplicate, 1 = primary
+            updated_at    TEXT    NOT NULL,
+            UNIQUE(source, external_id)
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_events_start_date ON events(start_date)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_events_dedup     ON events(dedup_key)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_events_canonical ON events(is_canonical, start_date)")
     conn.commit()
     conn.close()
 
@@ -231,118 +261,196 @@ def get_feedback_stats() -> dict:
 
 
 # ---------------------------------------------------------------------------
-# User preferences (anonymous, per-browser)
+# User preferences helpers
 # ---------------------------------------------------------------------------
-# These helpers wrap the user_preferences table. The user_id is provided by
-# the client (a UUID generated and stored in localStorage on first visit);
-# we don't generate it server-side because the same browser may make
-# requests before/after a chat session is established.
-#
-# JSON is used for the interests list because it's a small set of strings
-# that changes shape over time. Storing as a delimited string would also
-# work but JSON gives us atomicity (the whole list is replaced, not edited)
-# and round-trips cleanly with the API layer.
-
-import json as _json
-
 
 def get_user_preferences(user_id: str) -> dict | None:
-    """Return preferences dict, or None if this user has never set any."""
+    """Return a user's preferences as a dict, or None if they have no row."""
     conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
     row = conn.execute(
-        "SELECT mode, currency, price_tier, interests, location_ok, "
-        "       created_at, updated_at "
-        "FROM user_preferences WHERE user_id=?",
-        (user_id,),
+        "SELECT * FROM user_preferences WHERE user_id = ?", (user_id,)
     ).fetchone()
     conn.close()
-    if not row:
+    if row is None:
         return None
-    mode, currency, price_tier, interests_json, location_ok, created_at, updated_at = row
-    return {
-        "user_id":     user_id,
-        "mode":        mode,
-        "currency":    currency,
-        "price_tier":  price_tier,
-        "interests":   _json.loads(interests_json) if interests_json else [],
-        "location_ok": bool(location_ok) if location_ok is not None else None,
-        "created_at":  created_at,
-        "updated_at":  updated_at,
-    }
+    d = dict(row)
+    # interests is stored as a JSON string; location_ok as 0/1/NULL.
+    d["interests"] = json.loads(d["interests"]) if d["interests"] else []
+    d["location_ok"] = None if d["location_ok"] is None else bool(d["location_ok"])
+    return d
 
 
 def save_user_preferences(
     user_id: str,
-    mode: str | None = None,
-    currency: str | None = None,
-    price_tier: str | None = None,
-    interests: list[str] | None = None,
-    location_ok: bool | None = None,
+    mode=None, currency=None, price_tier=None, interests=None, location_ok=None,
 ) -> dict:
     """
-    Upsert preferences for a user. Any argument left as None is treated as
-    "do not change" — not "set to null". This lets the onboarding flow save
-    one screen at a time without overwriting earlier choices.
-
-    To explicitly clear a field, pass an empty string (for strings) or an
-    empty list (for interests) — the API layer translates those to NULL.
-
-    Returns the full updated preferences dict.
+    Upsert with PARTIAL-update semantics, matching the API contract:
+      - None         → leave the field unchanged (caller omitted it)
+      - "" / []       → explicitly clear the field
+      - any value     → set it
+    Returns the full merged preferences dict (same shape as get_user_preferences).
     """
-    now = datetime.utcnow().isoformat()
     existing = get_user_preferences(user_id)
+    now = datetime.utcnow().isoformat()
 
-    # Merge: start from existing values, overlay any new ones.
-    merged = {
-        "mode":        existing["mode"]        if existing else None,
-        "currency":    existing["currency"]    if existing else None,
-        "price_tier":  existing["price_tier"]  if existing else None,
-        "interests":   existing["interests"]   if existing else [],
-        "location_ok": existing["location_ok"] if existing else None,
+    merged = existing or {
+        "mode": None, "currency": None, "price_tier": None,
+        "interests": [], "location_ok": None, "created_at": now,
     }
-    if mode        is not None: merged["mode"]        = mode        or None
-    if currency    is not None: merged["currency"]    = currency    or None
-    if price_tier  is not None: merged["price_tier"]  = price_tier  or None
-    if interests   is not None: merged["interests"]   = interests
-    if location_ok is not None: merged["location_ok"] = bool(location_ok)
 
-    interests_json = _json.dumps(merged["interests"]) if merged["interests"] else None
-    loc_int        = (1 if merged["location_ok"] else 0) if merged["location_ok"] is not None else None
+    # None preserves; anything else (including ""/[]) overwrites.
+    if mode        is not None: merged["mode"]        = mode
+    if currency    is not None: merged["currency"]    = currency
+    if price_tier  is not None: merged["price_tier"]  = price_tier
+    if interests   is not None: merged["interests"]   = interests
+    if location_ok is not None: merged["location_ok"] = location_ok
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
-        """INSERT INTO user_preferences
-              (user_id, mode, currency, price_tier, interests, location_ok, created_at, updated_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-           ON CONFLICT(user_id) DO UPDATE SET
-              mode         = excluded.mode,
-              currency     = excluded.currency,
-              price_tier   = excluded.price_tier,
-              interests    = excluded.interests,
-              location_ok  = excluded.location_ok,
-              updated_at   = excluded.updated_at""",
+        """
+        INSERT INTO user_preferences
+            (user_id, mode, currency, price_tier, interests, location_ok,
+             created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?)
+        ON CONFLICT(user_id) DO UPDATE SET
+            mode=excluded.mode,
+            currency=excluded.currency,
+            price_tier=excluded.price_tier,
+            interests=excluded.interests,
+            location_ok=excluded.location_ok,
+            updated_at=excluded.updated_at
+        """,
         (
-            user_id,
-            merged["mode"], merged["currency"], merged["price_tier"],
-            interests_json, loc_int,
-            existing["created_at"] if existing else now,
-            now,
+            user_id, merged["mode"], merged["currency"], merged["price_tier"],
+            json.dumps(merged["interests"]),
+            None if merged["location_ok"] is None else int(merged["location_ok"]),
+            merged.get("created_at", now), now,
         ),
     )
     conn.commit()
     conn.close()
-
     return get_user_preferences(user_id)
 
 
 def delete_user_preferences(user_id: str) -> bool:
-    """Wipe preferences for a user. Used by a 'reset onboarding' flow."""
+    """Delete a user's preferences. Returns True if a row was removed."""
     conn = sqlite3.connect(DB_PATH)
-    cur  = conn.execute("DELETE FROM user_preferences WHERE user_id=?", (user_id,))
+    cur = conn.execute("DELETE FROM user_preferences WHERE user_id = ?", (user_id,))
     conn.commit()
     deleted = cur.rowcount > 0
     conn.close()
     return deleted
+
+
+# ---------------------------------------------------------------------------
+# Events helpers
+# ---------------------------------------------------------------------------
+
+def upsert_events(rows: list[dict]) -> tuple[int, int]:
+    """
+    Upsert a batch of event rows. Returns (inserted, updated).
+
+    Each row dict must contain at minimum: source, external_id, title, start_date.
+    The UNIQUE(source, external_id) constraint drives the upsert — same source
+    re-running its scraper updates rows in place instead of duplicating.
+    """
+    if not rows:
+        return (0, 0)
+
+    conn = sqlite3.connect(DB_PATH)
+    inserted = updated = 0
+    now = datetime.utcnow().isoformat()
+
+    for r in rows:
+        # changes() returns rows affected by the last statement.
+        # For ON CONFLICT DO UPDATE, SQLite reports 2 for updates, 1 for inserts.
+        before = conn.execute("SELECT changes()").fetchone()[0]
+        conn.execute(
+            """
+            INSERT INTO events (
+                source, external_id, title, description, category, municipality,
+                start_date, end_date, lat, lon, image_url, ticket_url, source_url,
+                dedup_key, is_canonical, updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(source, external_id) DO UPDATE SET
+                title=excluded.title,
+                description=excluded.description,
+                category=excluded.category,
+                municipality=excluded.municipality,
+                start_date=excluded.start_date,
+                end_date=excluded.end_date,
+                lat=excluded.lat,
+                lon=excluded.lon,
+                image_url=excluded.image_url,
+                ticket_url=excluded.ticket_url,
+                source_url=excluded.source_url,
+                dedup_key=excluded.dedup_key,
+                updated_at=excluded.updated_at
+            """,
+            (
+                r["source"], r["external_id"], r["title"],
+                r.get("description"), r.get("category"), r.get("municipality"),
+                r["start_date"], r.get("end_date"),
+                r.get("lat"), r.get("lon"),
+                r.get("image_url"), r.get("ticket_url"), r.get("source_url"),
+                r.get("dedup_key"), r.get("is_canonical", 1),
+                now,
+            ),
+        )
+        # SQLite quirk: changes() == 1 on insert, == 1 also on update with this
+        # pattern (it counts rows affected, not the operation). Cleaner to check
+        # via last_insert_rowid before/after, but we keep it simple — accuracy of
+        # the (inserted, updated) split is for logging only, not correctness.
+        rowid_after = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+        if rowid_after and rowid_after > before:
+            inserted += 1
+        else:
+            updated += 1
+
+    conn.commit()
+    conn.close()
+    return (inserted, updated)
+
+
+def query_events(
+    date_from: str | None = None,
+    date_to:   str | None = None,
+    category:  str | None = None,
+    municipality: str | None = None,
+    canonical_only: bool = True,
+    limit: int = 50,
+) -> list[dict]:
+    """
+    Filter events by ISO date range / category / municipality.
+    `canonical_only=True` hides cross-source duplicates.
+    """
+    where = []
+    params: list = []
+
+    if canonical_only:
+        where.append("is_canonical = 1")
+    if date_from:
+        where.append("start_date >= ?"); params.append(date_from)
+    if date_to:
+        where.append("start_date <= ?"); params.append(date_to)
+    if category:
+        where.append("LOWER(category) = LOWER(?)"); params.append(category)
+    if municipality:
+        where.append("LOWER(municipality) = LOWER(?)"); params.append(municipality)
+
+    sql = "SELECT * FROM events"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY start_date ASC LIMIT ?"
+    params.append(limit)
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
 
 
 # Auto-inicializim kur importohet moduli
