@@ -48,7 +48,7 @@ CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
 QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL")
 TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback disabled if unset
-SERP_API_KEY       = os.getenv("SERP_API_KEY")
+GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")  # Places API (New); demo key works for testing
 
 COLLECTION_NAME  = "wiki_banking"
 RERANK_MODEL     = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
@@ -719,17 +719,41 @@ def _rrf(results_a, results_b, k: int = 60) -> list:
 
 
 def contextualize_query(question: str, history: list[dict]) -> str:
-    """Expand vague follow-ups using conversation history."""
+    """Expand genuinely vague follow-ups ("more", "why?", "and then?") using the
+    previous question. A question that carries its own subject — even a short one
+    like "where is Era located?" — is left untouched, so an unrelated new question
+    never gets the previous topic glued onto it (which would corrupt retrieval and
+    can wrongly trip the time-sensitive/event path)."""
     FOLLOWUP_STARTERS = {
         "more", "and", "also", "tell", "what", "why", "how", "when",
         "where", "which", "give", "list", "show", "any", "ok", "okay",
         "yes", "continue", "go", "next", "another",
     }
-    words       = question.strip().split()
-    is_short    = len(words) <= 4
-    is_followup = words[0].lower().rstrip("?,.") in FOLLOWUP_STARTERS if words else False
+    # Function words that, on their own, don't give a question a retrievable
+    # subject. A token outside this set (or a proper noun mid-sentence) means the
+    # question can stand alone and must NOT be expanded.
+    STOPWORDS = {
+        "is", "are", "the", "a", "an", "of", "in", "at", "to", "do", "does",
+        "it", "me", "my", "about", "for", "on", "i", "you", "can", "could",
+        "there", "that", "this", "be", "with", "located", "near",
+    } | FOLLOWUP_STARTERS
 
-    if not (is_short or is_followup) or not history:
+    words = question.strip().split()
+    if not words or not history:
+        return question
+
+    is_short    = len(words) <= 4
+    is_followup = words[0].lower().rstrip("?,.") in FOLLOWUP_STARTERS
+
+    # Self-contained if any token is a proper noun (capitalized, not first word)
+    # or a non-function content word. "where is Era located?" → "Era" → standalone.
+    has_subject = any(
+        (i > 0 and w[:1].isupper())
+        or (w.lower().strip("?,.!") not in STOPWORDS and len(w.strip("?,.!")) > 1)
+        for i, w in enumerate(words)
+    )
+
+    if has_subject or not (is_short or is_followup):
         return question
 
     last_user = next(
@@ -1405,10 +1429,42 @@ def reset_preferences(user_id: str = Path(..., pattern=USER_ID_PATTERN)):
 
 
 # ---------------------------------------------------------------------------
-# SerpAPI Places endpoint
+# Places endpoint — Google Places API (New), Text Search
 # ---------------------------------------------------------------------------
-# Accepts a place name, searches Google Maps via SerpAPI scoped to Tirana,
-# and returns structured data for the frontend place card.
+# Accepts a place name, searches Places API (New) scoped to Tirana, and returns
+# the same `place` shape the frontend card already expects. Works with a Maps
+# Demo Key for testing and a billing-enabled key in production — no code change,
+# just the GOOGLE_MAPS_API_KEY env var.
+
+PLACES_SEARCH_URL = "https://places.googleapis.com/v1/places:searchText"
+
+# FieldMask drives cost in the New Places API: the most expensive field requested
+# sets the SKU tier for the call. This mask covers the detail card; trim it for
+# cheaper list/seed lookups. `places.id` is the only field cacheable indefinitely.
+_PLACES_FIELD_MASK = ",".join([
+    "places.id",
+    "places.displayName",
+    "places.formattedAddress",
+    "places.rating",
+    "places.userRatingCount",
+    "places.nationalPhoneNumber",
+    "places.websiteUri",
+    "places.primaryTypeDisplayName",
+    "places.regularOpeningHours",
+    "places.priceLevel",
+    "places.location",
+    "places.googleMapsUri",
+])
+
+# Places API (New) returns priceLevel as an enum; the card wants $ symbols.
+_PRICE_LEVEL = {
+    "PRICE_LEVEL_FREE":           "Free",
+    "PRICE_LEVEL_INEXPENSIVE":    "$",
+    "PRICE_LEVEL_MODERATE":       "$$",
+    "PRICE_LEVEL_EXPENSIVE":      "$$$",
+    "PRICE_LEVEL_VERY_EXPENSIVE": "$$$$",
+}
+
 
 class PlaceSearchRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
@@ -1417,102 +1473,73 @@ class PlaceSearchRequest(BaseModel):
 @limiter.limit("30/minute")
 def search_place(request: Request, req: PlaceSearchRequest):
     """
-    Search Google Maps for a place by name, scoped to Tirana, Albania.
+    Search Places API (New) for a place by name, scoped to Tirana, Albania.
     Returns structured data for the place card panel.
-    Requires SERP_API_KEY in the environment.
+    Requires GOOGLE_MAPS_API_KEY in the environment.
     """
-    if not SERP_API_KEY:
-        raise HTTPException(status_code=503, detail="Place search not configured (SERP_API_KEY missing)")
+    if not GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Place search not configured (GOOGLE_MAPS_API_KEY missing)")
 
-    query = f"{req.name} Tirana Albania"
-
-    serp_params = {
-        "engine":       "google_maps",
-        "q":            query,
-        "ll":           "@41.3275459,19.8186982,14z",  # Tirana lat/lng
-        "type":         "search",
-        "api_key":      SERP_API_KEY,
-        "hl":           "en",
+    query   = f"{req.name} Tirana Albania"
+    payload = {"textQuery": query, "languageCode": "en"}
+    headers = {
+        "Content-Type":     "application/json",
+        "X-Goog-Api-Key":   GOOGLE_MAPS_API_KEY,
+        "X-Goog-FieldMask": _PLACES_FIELD_MASK,
     }
 
-    # ── DEBUG: log the full request being sent to SerpAPI ──────────────────
-    safe_params = {k: (v if k != "api_key" else f"{v[:6]}…{v[-4:]}") for k, v in serp_params.items()}
-    full_url = requests.Request("GET", "https://serpapi.com/search", params=serp_params).prepare().url
-    print(f"[PlaceSearch] REQUEST  place_name={req.name!r}")
-    print(f"[PlaceSearch] REQUEST  params={json.dumps(safe_params, ensure_ascii=False)}")
-    print(f"[PlaceSearch] REQUEST  full_url={full_url}")
-
+    print(f"[PlaceSearch] REQUEST  place_name={req.name!r}  query={query!r}")
     try:
-        resp = requests.get(
-            "https://serpapi.com/search",
-            params=serp_params,
-            timeout=12,
-        )
+        resp = requests.post(PLACES_SEARCH_URL, json=payload, headers=headers, timeout=12)
         print(f"[PlaceSearch] RESPONSE http_status={resp.status_code}")
         resp.raise_for_status()
         data = resp.json()
     except Exception as e:
-        print(f"[PlaceSearch] SerpAPI request failed: {e}")
+        # Surface the API's error body when present — it explains bad-key / SKU issues.
+        body = getattr(getattr(e, "response", None), "text", "")
+        print(f"[PlaceSearch] Places request failed: {e} {body[:300]}")
         raise HTTPException(status_code=502, detail=f"Place search failed: {e}")
 
-    # ── DEBUG: log what SerpAPI returned ───────────────────────────────────
-    top_level_keys = list(data.keys())
-    search_info    = data.get("search_information", {})
-    local_results  = data.get("local_results", [])
-    error_msg      = data.get("error")          # SerpAPI returns {"error": "..."} on bad key / quota
-
-    print(f"[PlaceSearch] RESPONSE top_level_keys={top_level_keys}")
-    if error_msg:
-        print(f"[PlaceSearch] RESPONSE serpapi_error={error_msg!r}")
-    print(f"[PlaceSearch] RESPONSE search_information={json.dumps(search_info, ensure_ascii=False)}")
-    print(f"[PlaceSearch] RESPONSE local_results_count={len(local_results)}")
-    for i, r in enumerate(local_results[:5]):
-        print(f"[PlaceSearch] RESPONSE local_results[{i}] title={r.get('title')!r}  "
-              f"address={r.get('address')!r}  rating={r.get('rating')}  "
-              f"place_id={r.get('place_id')!r}")
-
-    results = local_results
+    results = data.get("places", [])
+    print(f"[PlaceSearch] RESPONSE places_count={len(results)}")
     if not results:
-        print(f"[PlaceSearch] no local_results — returning found=False")
         return {"found": False, "place": None}
 
-    # Pick the first result that roughly matches the name
-    place_raw = None
+    # Pick the first result whose name roughly matches; else the top result.
     name_lower = req.name.lower()
-    for r in results:
-        if name_lower in (r.get("title", "")).lower():
-            place_raw = r
-            print(f"[PlaceSearch] MATCH   matched title={r.get('title')!r}")
-            break
-    if not place_raw:
-        place_raw = results[0]  # fall back to first result
-        print(f"[PlaceSearch] MATCH   no name match — falling back to results[0] title={place_raw.get('title')!r}")
+    place_raw = next(
+        (r for r in results
+         if name_lower in (r.get("displayName", {}).get("text", "")).lower()),
+        results[0],
+    )
 
-    # Build hours summary
-    hours_raw = place_raw.get("operating_hours", {})
+    # Opening hours → [{day, hours}]. weekdayDescriptions look like "Monday: 9 AM – 5 PM".
     hours_list = []
-    for day, times in hours_raw.items():
-        hours_list.append({"day": day, "hours": times})
+    for desc in (place_raw.get("regularOpeningHours", {}).get("weekdayDescriptions") or []):
+        day, sep, hrs = desc.partition(": ")
+        hours_list.append({"day": day, "hours": hrs if sep else ""})
 
-    # Thumbnail: use first thumbnail if available
-    thumbnail = place_raw.get("thumbnail", None)
+    open_now_raw = place_raw.get("regularOpeningHours", {}).get("openNow")
+    open_now = None if open_now_raw is None else ("Open" if open_now_raw else "Closed")
 
+    loc = place_raw.get("location", {})
     place = {
-        "name":          place_raw.get("title"),
-        "rating":        place_raw.get("rating"),
-        "reviews":       place_raw.get("reviews"),
-        "address":       place_raw.get("address"),
-        "phone":         place_raw.get("phone"),
-        "website":       place_raw.get("website"),
-        "type":          place_raw.get("type"),
-        "hours":         hours_list,
-        "open_now":      place_raw.get("open_state"),
-        "price":         place_raw.get("price"),
-        "thumbnail":     thumbnail,
-        "maps_url":      place_raw.get("links", {}).get("directions")
-                         or f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(query)}",
-        "place_id":      place_raw.get("place_id"),
-        "gps":           place_raw.get("gps_coordinates"),
+        "name":      place_raw.get("displayName", {}).get("text"),
+        "rating":    place_raw.get("rating"),
+        "reviews":   place_raw.get("userRatingCount"),
+        "address":   place_raw.get("formattedAddress"),
+        "phone":     place_raw.get("nationalPhoneNumber"),
+        "website":   place_raw.get("websiteUri"),
+        "type":      place_raw.get("primaryTypeDisplayName", {}).get("text"),
+        "hours":     hours_list,
+        "open_now":  open_now,
+        "price":     _PRICE_LEVEL.get(place_raw.get("priceLevel")),
+        "thumbnail": None,  # photos require a costlier field tier + leak the key client-side; skip
+        "maps_url":  place_raw.get("googleMapsUri")
+                     or f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(query)}",
+        "place_id":  place_raw.get("id"),
+        "gps":       ({"latitude": loc.get("latitude"), "longitude": loc.get("longitude")}
+                      if loc else None),
     }
 
     return {"found": True, "place": place}
