@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import "./ask.css";
 
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
+
+import { streamChat, getHistory, sendFeedback } from "../../lib/api";
 
 const mapMarkerIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -14,6 +16,15 @@ const mapMarkerIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
+const WELCOME_MESSAGE = {
+  id: "welcome",
+  type: "assistant",
+  text: "Hi, I’m TiranaTips. Ask me like you would ask a local friend.",
+  time: "Now",
+  cardType: null,
+  recommendations: null,
+};
+
 function Ask() {
   const [question, setQuestion] = useState("");
   const [selectedPlace, setSelectedPlace] = useState(null);
@@ -21,18 +32,14 @@ function Ask() {
   const [savedPlaceIds, setSavedPlaceIds] = useState([]);
   const [toastMessage, setToastMessage] = useState("");
 
-  const [messages, setMessages] = useState([
-    {
-      id: 1,
-      type: "assistant",
-      text: "Hi, I’m TiranaTips. Ask me like you would ask a local friend.",
-      time: "Now",
-      cardType: null,
-      recommendations: null,
-    },
-  ]);
-
+  const [messages, setMessages] = useState([WELCOME_MESSAGE]);
   const [isTyping, setIsTyping] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
+  const [feedbackGiven, setFeedbackGiven] = useState({}); // {messageId: 1|-1}
+
+  // Guard against double-fetching history under React 18 StrictMode
+  // (effects run twice in dev).
+  const historyLoaded = useRef(false);
 
   const mostAsked = [
     "Good coffee near Blloku?",
@@ -41,6 +48,35 @@ function Ask() {
     "Where can I exchange money?",
     "What can I do tonight?",
   ];
+
+  // -------------------------------------------------------------------------
+  // Restore this session's history on mount so a page refresh doesn't wipe
+  // the conversation (the backend has persisted it all along).
+  // -------------------------------------------------------------------------
+  useEffect(() => {
+    if (historyLoaded.current) return;
+    historyLoaded.current = true;
+
+    getHistory()
+      .then(({ messages: past }) => {
+        if (!past || past.length === 0) return;
+        const restored = past.map((m, i) => ({
+          id: `h-${i}`,
+          type: m.role === "user" ? "user" : "assistant",
+          text: m.content,
+          // The user question preceding each assistant turn — needed for the
+          // feedback endpoint, which rates (question, answer) pairs.
+          question: m.role === "assistant" ? past[i - 1]?.content : undefined,
+          time: "Earlier",
+          cardType: null,
+          recommendations: null,
+        }));
+        setMessages([WELCOME_MESSAGE, ...restored]);
+      })
+      .catch(() => {
+        // History is a nicety — a fresh chat is a fine fallback.
+      });
+  }, []);
 
   const handleSavePlace = (place) => {
     setSavedPlaceIds((prev) => {
@@ -65,153 +101,109 @@ function Ask() {
       return [...prev, place.id];
     });
   };
-  const getDemoAnswer = (userQuestion) => {
-    const text = userQuestion.toLowerCase();
 
-    if (
-      text.includes("restaurant") ||
-      text.includes("food") ||
-      text.includes("eat") ||
-      text.includes("blloku") ||
-      text.includes("dinner")
-    ) {
-      return {
-        text: "Here are 3 good options near Blloku depending on your vibe: modern Albanian dining, casual brunch, or traditional food.",
-        cardType: "recommendationList",
-        recommendations: {
-          title: "Top recommendations near Blloku",
-          items: [
-            {
-              id: 1,
-              name: "Mullixhiu",
-              lat: 41.3186,
-              lng: 19.8167,
-              tag: "Top pick",
-              type: "Modern Albanian dining",
-              area: "Blloku / near Grand Park",
-              rating: "4.8",
-              price: "Mid-high",
-              image:
-                "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=700&q=80",
-              bestFor: "Dinner & local cuisine",
-              tip: "Reserve ahead, especially on weekends.",
-              sentiment: "Mostly positive",
-              reviewSummary:
-                "People like the atmosphere, food quality, and modern Albanian style. Some mention that it can get crowded during dinner and prices are a bit high.",
-              liked: ["Great atmosphere", "Good service", "Food quality"],
-              watchOut: [
-                "Can be crowded",
-                "Prices are a bit high",
-                "Reservation recommended",
-              ],
-            },
-            {
-              id: 2,
-              name: "Salt Tirana",
-              lat: 41.3211,
-              lng: 19.8147,
-              tag: "Café / brunch",
-              type: "Modern café",
-              area: "Blloku",
-              rating: "4.7",
-              price: "Mid-range",
-              image:
-                "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=700&q=80",
-              bestFor: "Coffee, brunch & casual lunch",
-              tip: "Good daytime vibe.",
-              sentiment: "Positive",
-              reviewSummary:
-                "People like the coffee, brunch options, and modern atmosphere. It can feel busy during peak hours.",
-              liked: ["Good coffee", "Nice brunch", "Modern interior"],
-              watchOut: ["Busy at peak hours", "Can be noisy"],
-            },
-            {
-              id: 3,
-              name: "Era Blloku",
-              lat: 41.3214,
-              lng: 19.8162,
-              tag: "Traditional",
-              type: "Albanian cuisine",
-              area: "Blloku",
-              rating: "4.6",
-              price: "Mid-range",
-              image:
-                "https://images.unsplash.com/photo-1555396273-367ea4eb4db5?auto=format&fit=crop&w=700&q=80",
-              bestFor: "Classic local food",
-              tip: "Good for first-time visitors.",
-              sentiment: "Mostly positive",
-              reviewSummary:
-                "People like the traditional Albanian dishes, friendly service, and central location. Some mention that it can be full during dinner.",
-              liked: ["Traditional food", "Friendly service", "Good location"],
-              watchOut: ["Can be full", "Reservation helps"],
-            },
-          ],
-        },
-      };
-    }
-
-    if (text.includes("rain")) {
-      return {
-        text: "If it rains, keep your plan indoor and simple: a warm café, a museum or gallery, then dinner somewhere cozy.",
-        cardType: null,
-        recommendations: null,
-      };
-    }
-
-    if (text.includes("safe")) {
-      return {
-        text: "Central Tirana is generally comfortable to explore. At night, stay in well-lit areas, keep an eye on your belongings, and use taxis if you are far from the center.",
-        cardType: null,
-        recommendations: null,
-      };
-    }
-
-    if (text.includes("calm")) {
-      return {
-        text: "For a calm afternoon, start with coffee near the city center, walk around Liqeni i Tiranës, then end with an early dinner somewhere quiet.",
-        cardType: null,
-        recommendations: null,
-      };
-    }
-
-    return {
-      text: "A simple Tirana plan: start with coffee, choose one area to explore, check what events are happening tonight, and finish with dinner somewhere local.",
-      cardType: null,
-      recommendations: null,
-    };
-  };
-
-  const sendQuestion = (textToSend) => {
-    if (!textToSend.trim()) return;
+  // -------------------------------------------------------------------------
+  // Send a question → stream the answer token by token.
+  //
+  // Flow per backend contract:
+  //   1. `sources` event arrives first → stash on the pending message
+  //   2. `token` events append text (typing indicator goes away on first one)
+  //   3. optional `translation` event REPLACES the full text (the backend
+  //      streams English first, then swaps in the user-language version)
+  //   4. `done` ends the stream; `low_confidence` short-circuits with a
+  //      fallback message instead of tokens.
+  // -------------------------------------------------------------------------
+  const sendQuestion = async (textToSend) => {
+    const trimmed = textToSend.trim();
+    if (!trimmed || isStreaming) return;
 
     const userMessage = {
       id: Date.now(),
       type: "user",
-      text: textToSend,
+      text: trimmed,
       time: "Now",
       cardType: null,
       recommendations: null,
     };
 
+    const assistantId = Date.now() + 1;
+
     setMessages((prev) => [...prev, userMessage]);
     setQuestion("");
     setIsTyping(true);
+    setIsStreaming(true);
 
-    setTimeout(() => {
-      const answer = getDemoAnswer(textToSend);
+    // Helper: patch the in-flight assistant message immutably.
+    const patchAssistant = (patch) =>
+      setMessages((prev) =>
+        prev.map((m) => (m.id === assistantId ? { ...m, ...patch(m) } : m))
+      );
 
-      const assistantMessage = {
-        id: Date.now() + 1,
-        type: "assistant",
-        text: answer.text,
-        time: "Just now",
-        cardType: answer.cardType,
-        recommendations: answer.recommendations,
-      };
-
-      setMessages((prev) => [...prev, assistantMessage]);
+    let bubbleCreated = false;
+    const ensureBubble = () => {
+      if (bubbleCreated) return;
+      bubbleCreated = true;
       setIsTyping(false);
-    }, 650);
+      setMessages((prev) => [
+        ...prev,
+        {
+          id: assistantId,
+          type: "assistant",
+          text: "",
+          question: trimmed,
+          sources: [],
+          time: "Just now",
+          cardType: null,
+          recommendations: null,
+        },
+      ]);
+    };
+
+    try {
+      await streamChat(
+        { question: trimmed },
+        {
+          onSources: (sources) => {
+            ensureBubble();
+            patchAssistant(() => ({ sources }));
+          },
+          onToken: (token) => {
+            ensureBubble();
+            patchAssistant((m) => ({ text: m.text + token }));
+          },
+          onTranslation: (text) => {
+            patchAssistant(() => ({ text }));
+          },
+          onLowConfidence: (message) => {
+            ensureBubble();
+            patchAssistant(() => ({ text: message, sources: [] }));
+          },
+        }
+      );
+    } catch (err) {
+      console.error(err);
+      ensureBubble();
+      patchAssistant((m) => ({
+        text:
+          m.text ||
+          "Sorry — I couldn’t reach the server. Please try again in a moment.",
+      }));
+    } finally {
+      setIsTyping(false);
+      setIsStreaming(false);
+    }
+  };
+
+  // Thumbs up/down on an assistant answer. On -1 the backend also evicts
+  // every cached variant of the question so the bad answer isn't replayed.
+  const handleFeedback = async (message, rating) => {
+    if (!message.question || feedbackGiven[message.id]) return;
+    setFeedbackGiven((prev) => ({ ...prev, [message.id]: rating }));
+    try {
+      await sendFeedback(message.question, rating);
+    } catch (err) {
+      console.error(err);
+    }
   };
 
   const handleSubmit = (event) => {
@@ -315,6 +307,52 @@ function Ask() {
                       />
                     )}
 
+                  {message.sources?.length > 0 && (
+                    <div className="message-sources">
+                      {message.sources.map((source, i) =>
+                        source.type === "web" && source.url ? (
+                          <a
+                            key={i}
+                            href={source.url}
+                            target="_blank"
+                            rel="noreferrer"
+                          >
+                            🌐 {source.title}
+                          </a>
+                        ) : (
+                          <span key={i}>📄 {source.title || source}</span>
+                        )
+                      )}
+                    </div>
+                  )}
+
+                  {message.type === "assistant" && message.question && (
+                    <div className="message-feedback">
+                      <button
+                        type="button"
+                        className={
+                          feedbackGiven[message.id] === 1 ? "is-rated" : ""
+                        }
+                        disabled={!!feedbackGiven[message.id]}
+                        onClick={() => handleFeedback(message, 1)}
+                        aria-label="Good answer"
+                      >
+                        👍
+                      </button>
+                      <button
+                        type="button"
+                        className={
+                          feedbackGiven[message.id] === -1 ? "is-rated" : ""
+                        }
+                        disabled={!!feedbackGiven[message.id]}
+                        onClick={() => handleFeedback(message, -1)}
+                        aria-label="Bad answer"
+                      >
+                        👎
+                      </button>
+                    </div>
+                  )}
+
                   <small>{message.time}</small>
                 </div>
               </div>
@@ -340,9 +378,12 @@ function Ask() {
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               placeholder="Ask me anything about Tirana..."
+              disabled={isStreaming}
             />
 
-            <button type="submit">Send</button>
+            <button type="submit" disabled={isStreaming}>
+              Send
+            </button>
           </form>
         </section>
       </section>

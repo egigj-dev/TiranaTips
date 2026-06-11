@@ -98,13 +98,14 @@ def _run_deploy() -> None:
         # Long timeout: a cold build installs Chromium; warm builds reuse the
         # cached layer and finish fast.
         if not _run(
-            ["docker", "compose", "-f", "docker-compose.yml", "build", "api"],
+            ["docker", "compose", "-f", "docker-compose.yml",
+             "build", "api", "frontend"],
             "docker build", timeout=900,
         ):
             return
         if not _run(
             ["docker", "compose", "-f", "docker-compose.yml",
-             "up", "-d", "--force-recreate", "api"],
+             "up", "-d", "--force-recreate", "api", "frontend"],
             "docker recreate"
         ):
             return

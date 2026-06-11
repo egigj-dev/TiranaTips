@@ -1,9 +1,11 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import "./foryou.css";
 import forYouHeroBg from "../../assets/for-you.png";
 import Register from "../../components/Authentication/Register";
 import Login from "../../components/Authentication/Login";
 import loggedSkyline from "../../assets/skyline.png";
+
+import { getPreferences } from "../../lib/api";
 
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
@@ -38,9 +40,56 @@ const mapMarkerIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
+// Backend token → display label (same maps as Register; backend stores
+// lowercase tokens like "nomad" / "study_work_cafes").
+const MODE_LABELS = {
+  local: "Local",
+  student: "Student",
+  tourist: "Tourist",
+  nomad: "Digital Nomad",
+  business: "Business Visitor",
+};
+
+const TIER_LABELS = {
+  budget: "Budget-friendly",
+  mid: "Mid-range",
+  premium: "Premium",
+  luxury: "Luxury",
+};
+
+const INTEREST_LABELS = {
+  live_music: "Live music",
+  study_work_cafes: "Study & work cafés",
+};
+
+const prettify = (token) =>
+  token.charAt(0).toUpperCase() + token.slice(1).replace(/_/g, " ");
+
+const label = (map, token) => (token ? map[token] || prettify(token) : null);
+
 function ForYou() {
-  const [isLoggedIn, setIsLoggedIn] = useState(true);
   const [authView, setAuthView] = useState(null);
+
+  // Real personalization state: with anonymous users there is no "login",
+  // so "logged in" = the localStorage user has completed onboarding
+  // (backend's `onboarded` flag = at least one meaningful preference set).
+  const [prefs, setPrefs] = useState(null);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
+  const refreshPrefs = useCallback(() => {
+    getPreferences()
+      .then((p) => {
+        setPrefs(p);
+        setIsLoggedIn(!!p.onboarded);
+      })
+      .catch((err) => {
+        console.error("Failed to load preferences:", err);
+      });
+  }, []);
+
+  useEffect(() => {
+    refreshPrefs();
+  }, [refreshPrefs]);
 
   return (
     <main className="for-you-page">
@@ -66,6 +115,7 @@ function ForYou() {
 
       {isLoggedIn ? (
         <LoggedInForYou
+          prefs={prefs}
           onLogout={() => setIsLoggedIn(false)}
           onEditPreferences={() => setAuthView("preferences")}
         />
@@ -81,6 +131,7 @@ function ForYou() {
         <Register
           onClose={() => setAuthView(null)}
           onSwitch={() => setAuthView("login")}
+          onSaved={refreshPrefs}
         />
       )}
 
@@ -90,6 +141,7 @@ function ForYou() {
           setupOnly={true}
           onClose={() => setAuthView(null)}
           onSwitch={() => setAuthView("login")}
+          onSaved={refreshPrefs}
         />
       )}
 
@@ -244,22 +296,30 @@ function GuestForYou({ forYouHeroBg, onOpenRegister, onOpenLogin }) {
   );
 }
 
-function LoggedInForYou({ onLogout, onEditPreferences }) {
+function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
   const [selectedArea, setSelectedArea] = useState(null);
   const [showFullMap, setShowFullMap] = useState(false);
   const [showSavedModal, setShowSavedModal] = useState(false);
 
-  const interests = [
-    "Coffee",
-    "Restaurants",
-    "Nature",
-    "Culture",
-    "Events",
-    "Hidden gems",
-    "Work-friendly cafés",
-    "Day trips",
-  ];
+  // Real interests from saved preferences; demo list as fallback for the
+  // "Preview: Logged in" toggle when nothing is saved yet.
+  const interests =
+    prefs?.interests?.length > 0
+      ? prefs.interests.map((i) => label(INTEREST_LABELS, i))
+      : [
+          "Coffee",
+          "Restaurants",
+          "Nature",
+          "Culture",
+          "Events",
+          "Hidden gems",
+          "Work-friendly cafés",
+          "Day trips",
+        ];
 
+  // DEMO DATA — there is no saved-places backend yet (planned with the
+  // structured places table). Everything below the preferences strip that
+  // shows places/maps still renders this mock list.
   const savedPlaces = [
     {
       name: "Mullixhiu",
@@ -355,17 +415,24 @@ function LoggedInForYou({ onLogout, onEditPreferences }) {
     ? savedPlaces.filter((place) => place.area === selectedArea)
     : [];
 
+  const memberSince = prefs?.created_at
+    ? new Date(prefs.created_at).toLocaleDateString("en-GB", {
+        month: "short",
+        year: "numeric",
+      })
+    : "—";
+
   const summaryItems = [
     {
       icon: WalletCards,
       label: "Budget",
-      value: "Mid-range",
+      value: label(TIER_LABELS, prefs?.price_tier) || "Not set",
       className: "summary-budget",
     },
     {
       icon: Coins,
       label: "Currency",
-      value: "EUR / ALL",
+      value: prefs?.currency || "Not set",
       className: "summary-currency",
     },
     {
@@ -377,7 +444,7 @@ function LoggedInForYou({ onLogout, onEditPreferences }) {
     {
       icon: CalendarDays,
       label: "Member since",
-      value: "May 2024",
+      value: memberSince,
       className: "summary-date",
     },
   ];
@@ -422,7 +489,7 @@ function LoggedInForYou({ onLogout, onEditPreferences }) {
     <section className="logged-page">
       <section className="logged-hero-dashboard">
         <div className="logged-hero-text">
-          <h1>Hello, Sara!</h1>
+          <h1>Hello!</h1>
           <p>
             Welcome back to your TiranaTips.
             <br />
@@ -447,11 +514,12 @@ function LoggedInForYou({ onLogout, onEditPreferences }) {
 
       <section className="profile-summary-strip">
         <div className="profile-user-mini">
-          <div className="profile-avatar">S</div>
+          <div className="profile-avatar">T</div>
 
           <div>
             <h2>
-              Sara Lozi <span>Local</span>
+              Your profile{" "}
+              <span>{label(MODE_LABELS, prefs?.mode) || "No mode set"}</span>
             </h2>
           </div>
         </div>

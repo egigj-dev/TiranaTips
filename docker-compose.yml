@@ -57,3 +57,19 @@ services:
     depends_on:
       - wikijs
       - qdrant
+  
+# ───────────────────────────────────────────────────────────────────────────
+# lets nginx reach the API by its service name `api` on port 8000.
+# ───────────────────────────────────────────────────────────────────────────
+
+  frontend:
+    build:
+      context: ./frontend          
+                                   
+    container_name: tirantips-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"                     # public entry point; nginx serves the SPA
+                                    #   and proxies /chat, /preferences, etc.
+    depends_on:
+      - api
