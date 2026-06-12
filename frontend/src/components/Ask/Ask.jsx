@@ -183,11 +183,15 @@ function Ask() {
     } catch (err) {
       console.error(err);
       ensureBubble();
-      patchAssistant((m) => ({
-        text:
-          m.text ||
-          "Sorry — I couldn’t reach the server. Please try again in a moment.",
-      }));
+      // err.status is set by api.js for HTTP failures; map the two
+      // user-fixable cases to actionable messages instead of "outage".
+      const friendly =
+        err.status === 429
+          ? "You’re sending messages a bit too fast — wait a moment and try again."
+          : err.status === 422
+          ? "That question is too long — please shorten it (max 1000 characters)."
+          : "Sorry — I couldn’t reach the server. Please try again in a moment.";
+      patchAssistant((m) => ({ text: m.text || friendly }));
     } finally {
       setIsTyping(false);
       setIsStreaming(false);
@@ -310,14 +314,15 @@ function Ask() {
                   {message.sources?.length > 0 && (
                     <div className="message-sources">
                       {message.sources.map((source, i) =>
-                        source.type === "web" && source.url ? (
+                        source.url ? (
                           <a
                             key={i}
                             href={source.url}
                             target="_blank"
                             rel="noreferrer"
                           >
-                            🌐 {source.title}
+                            {source.type === "event" ? "📅" : "🌐"}{" "}
+                            {source.title}
                           </a>
                         ) : (
                           <span key={i}>📄 {source.title || source}</span>
@@ -378,6 +383,7 @@ function Ask() {
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
               placeholder="Ask me anything about Tirana..."
+              maxLength={1000}
               disabled={isStreaming}
             />
 

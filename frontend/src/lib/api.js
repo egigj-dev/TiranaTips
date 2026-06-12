@@ -16,10 +16,21 @@ const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 // hyphens) satisfies that.
 // ---------------------------------------------------------------------------
 
+function generateId() {
+  // crypto.randomUUID() exists only in SECURE contexts (https / localhost).
+  // The VPS currently serves plain http, where calling it throws and crashes
+  // React on mount. crypto.getRandomValues() works in all contexts, so fall
+  // back to 32 hex chars — still matches ^[a-zA-Z0-9_-]{8,64}$.
+  if (typeof crypto.randomUUID === "function") return crypto.randomUUID();
+  const bytes = new Uint8Array(16);
+  crypto.getRandomValues(bytes);
+  return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+}
+
 function getOrCreateId(storageKey) {
   let id = localStorage.getItem(storageKey);
   if (!id) {
-    id = crypto.randomUUID();
+    id = generateId();
     localStorage.setItem(storageKey, id);
   }
   return id;
@@ -85,7 +96,9 @@ export async function streamChat(
   });
 
   if (!res.ok || !res.body) {
-    throw new Error(`chat/stream failed: HTTP ${res.status}`);
+    const err = new Error(`chat/stream failed: HTTP ${res.status}`);
+    err.status = res.status;
+    throw err;
   }
 
   const reader = res.body.getReader();
@@ -165,3 +178,10 @@ export const deletePreferences = () =>
 
 export const searchPlace = (name) =>
   request("/places/search", { method: "POST", body: JSON.stringify({ name }) });
+// ---------------------------------------------------------------------------
+// City notes — cached live data for the Home "Smart Local Notes" cards.
+// Shape: { weather, exchange, departures, arrivals } — any section can be
+// null until the backend's first refresh completes; render placeholders.
+// ---------------------------------------------------------------------------
+
+export const getCityNotes = () => request("/city/notes");

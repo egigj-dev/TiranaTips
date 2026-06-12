@@ -41,7 +41,12 @@ services:
     restart: unless-stopped
     working_dir: /app
     ports:
-      - "8000:8000"
+      # Loopback-only: nginx reaches the API over the docker network by
+      # service name, so the host mapping exists purely for local debugging
+      # (curl on the VPS). 0.0.0.0 binding exposed uvicorn to internet
+      # scanners ("Invalid HTTP request received" log noise) and left
+      # /admin/ingest reachable without auth.
+      - "127.0.0.1:8000:8000"
     volumes:
       # Code is baked into the image; only PERSISTENT DATA is mounted so it
       # survives container recreates on deploy. SQLite (chat_history.db + WAL

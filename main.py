@@ -32,7 +32,8 @@ from database import (save_message, get_history, save_summary, get_summary,
                        rename_session, get_session_name,
                        save_feedback, get_feedback_stats,
                        get_user_preferences, save_user_preferences,
-                       delete_user_preferences, query_events)
+                       delete_user_preferences, query_events, DB_PATH)
+import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -435,6 +436,18 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
         misfire_grace_time=300,
     )
+    # Smart Local Notes data (weather / exchange / TIA flights). First run
+    # immediately so the cache is warm shortly after boot; the endpoint
+    # serves nulls until then and the frontend shows placeholders.
+    scheduler.add_job(
+        city_notes.refresh,
+        "interval",
+        minutes=10,
+        id="city_notes",
+        replace_existing=True,
+        next_run_time=datetime.utcnow(),
+        misfire_grace_time=120,
+    )
     scheduler.start()
     print(f"Scheduler started — ingestion cdo {INGEST_INTERVAL_HOURS}h.")
     yield
@@ -467,12 +480,22 @@ embeddings   = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
 sparse_model = SparseTextEmbedding(model_name="Qdrant/bm25")
 
 # Cross-encoder via ONNX Runtime — CPU-only, no PyTorch/CUDA needed.
-# export=True converts to ONNX on first load and caches it.
-_rerank_tokenizer = AutoTokenizer.from_pretrained(RERANK_MODEL)
-_rerank_model     = ORTModelForSequenceClassification.from_pretrained(
-    RERANK_MODEL,
-    export=True,
-)
+# The exported ONNX model is saved under ~/.cache (the mounted model_cache
+# volume in Docker), so conversion happens once; every later boot loads the
+# cached export directly instead of re-tracing the PyTorch model.
+_ONNX_DIR = os.path.join(os.path.expanduser("~/.cache"), "reranker-onnx")
+
+if os.path.isdir(_ONNX_DIR):
+    _rerank_tokenizer = AutoTokenizer.from_pretrained(_ONNX_DIR)
+    _rerank_model     = ORTModelForSequenceClassification.from_pretrained(_ONNX_DIR)
+else:
+    _rerank_tokenizer = AutoTokenizer.from_pretrained(RERANK_MODEL)
+    _rerank_model     = ORTModelForSequenceClassification.from_pretrained(
+        RERANK_MODEL,
+        export=True,
+    )
+    _rerank_model.save_pretrained(_ONNX_DIR)
+    _rerank_tokenizer.save_pretrained(_ONNX_DIR)
 
 def _rerank_scores(pairs: list[list[str]]) -> list[float]:
     """Score question-chunk pairs. Drop-in replacement for CrossEncoder.predict()."""
@@ -1038,7 +1061,7 @@ def _delete_last_assistant_message(session_id: str) -> None:
     Inlined sqlite to avoid coupling to a specific database.py helper.
     """
     import sqlite3 as _sq
-    conn = _sq.connect("chat_history.db")
+    conn = _sq.connect(DB_PATH)
     conn.execute(
         """DELETE FROM messages
              WHERE id = (
@@ -1292,6 +1315,11 @@ def _summarize_session(session_id: str, model: str):
 # Endpoints
 # ---------------------------------------------------------------------------
 
+@app.get("/city/notes")
+def get_city_notes_endpoint():
+    """Cached live data for the Home Smart Local Notes (see city_notes.py)."""
+    return city_notes.get_notes()
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model": CHOSEN_MODEL}
@@ -1316,7 +1344,7 @@ def rename_session_endpoint(session_id: str, req: RenameRequest):
 @app.delete("/sessions/{session_id}")
 def delete_session(session_id: str):
     import sqlite3 as _sq
-    conn = _sq.connect("chat_history.db")
+    conn = _sq.connect(DB_PATH)
     conn.execute("DELETE FROM messages  WHERE session_id=?", (session_id,))
     conn.execute("DELETE FROM summaries WHERE session_id=?", (session_id,))
     conn.commit(); conn.close()

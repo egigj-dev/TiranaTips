@@ -180,13 +180,16 @@ function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = fal
   const handleFinishSetup = async () => {
     setIsSaving(true);
     try {
-      // PUT is a partial upsert on the backend: only non-null fields are
-      // written, so an empty selection leaves the stored value untouched.
+      // PUT is a partial upsert on the backend: null fields are preserved.
+      // interests is sent as-is — an empty array explicitly CLEARS it
+      // (deselecting every chip is an intentional "no interests" choice).
+      // mode/budget/currency stay null-if-empty: their selects can't be
+      // deselected, so "" only ever means "never chosen".
       await savePreferences({
         mode: formData.cityMode || null,
         price_tier: formData.budget || null,
         currency: formData.currency || null,
-        interests: selectedInterests.length ? selectedInterests : null,
+        interests: selectedInterests,
       });
       onSaved?.();
       onClose();

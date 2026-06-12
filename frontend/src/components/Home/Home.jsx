@@ -1,3 +1,4 @@
+import { useState, useEffect } from "react";
 import "./home.css";
 import {
   CalendarDays,
@@ -8,21 +9,52 @@ import {
   GraduationCap,
   LaptopMinimal,
   Droplets,
-  Plane,
-  CarFront,
+  PlaneTakeoff,
+  PlaneLanding,
   CalendarRange,
   MessageCircle,
   Compass,
   Leaf,
 } from "lucide-react";
 
+import { getCityNotes } from "../../lib/api";
+
 import tiranaHeroImage from "../../assets/home.png";
 import exchangeNoteImg from "../../assets/home/exchange-note.png";
 import airportNoteImg from "../../assets/home/airport-note.png";
-import trafficNoteImg from "../../assets/home/traffic-note.png";
 import eventsNoteImg from "../../assets/home/events-note.png";
 
 function Home() {
+  // Live data for the hero + Smart Local Notes. null until the backend's
+  // first refresh completes — cards render "—" placeholders meanwhile.
+  const [notes, setNotes] = useState(null);
+
+  useEffect(() => {
+    getCityNotes().then(setNotes).catch(console.error);
+  }, []);
+
+  // Real date, formatted like the old mock ("Sunday, May 31").
+  const todayLabel = new Date().toLocaleDateString("en-US", {
+    weekday: "long",
+    month: "long",
+    day: "numeric",
+  });
+
+  const eur = notes?.exchange?.rates?.EUR;
+  // "Basel-Mulhouse-Freiburg (FR)" / "Athens / Athine (GR)" → "Basel-Mulhouse-Freiburg",
+  // "Athens" — cards have no room for country codes and bilingual aliases.
+  const shortCity = (city) =>
+    city.replace(/\s*\([A-Z]{2}\)\s*$/, "").split(" / ")[0].trim();
+  const flightLine = (f) => (f ? `${f.time} · ${shortCity(f.city)}` : null);
+  const flightLines = (section) =>
+    (section?.flights ?? []).slice(0, 3).map(flightLine).filter(Boolean);
+  const dep = flightLines(notes?.departures);
+  const arr = flightLines(notes?.arrivals);
+
+  const hour = new Date().getHours();
+  const greeting =
+    hour < 12 ? "Good morning," : hour < 18 ? "Good afternoon," : "Good evening,";
+
   const audienceItems = [
     { icon: Users, label: "For locals" },
     { icon: BriefcaseBusiness, label: "Visitors" },
@@ -34,29 +66,30 @@ function Home() {
     {
       icon: Droplets,
       title: "Exchange Rates",
-      label: "ALL / EUR",
-      value: "108.4",
-      note: "+0.3%",
+      label: "EUR → ALL · Iliria'98",
+      value: eur ? `${eur.buy} / ${eur.sell}` : "—",
+      note: eur ? "buy / sell" : "",
       variant: "exchange",
       image: exchangeNoteImg,
+      href: "https://iliria98.com/",
     },
     {
-      icon: Plane,
-      title: "Airport",
-      label: "Departures",
-      value: "On time",
-      note: "",
+      icon: PlaneTakeoff,
+      title: "Departures",
+      label: "Next from TIA",
+      lines: dep,
       variant: "airport",
       image: airportNoteImg,
+      href: "https://www.tirana-airport.com/en/flights/departures",
     },
     {
-      icon: CarFront,
-      title: "Traffic",
-      label: "Busy center",
-      value: "2 road closures",
-      note: "",
-      variant: "traffic",
-      image: trafficNoteImg,
+      icon: PlaneLanding,
+      title: "Arrivals",
+      label: "Next at TIA",
+      lines: arr,
+      variant: "airport",
+      image: airportNoteImg,
+      href: "https://www.tirana-airport.com/en/flights/arrivals",
     },
     {
       icon: CalendarRange,
@@ -195,23 +228,23 @@ function Home() {
             />
 
             <div className="daily-card-content">
-              <p className="daily-greeting">Good morning,</p>
+              <p className="daily-greeting">{greeting}</p>
               <h2>Ready for today?</h2>
 
               <div className="daily-meta">
                 <span>
                   <CalendarDays size={15} strokeWidth={2.2} />
-                  Sunday, May 31
+                  {todayLabel}
                 </span>
 
                 <span>
                   <CloudSun size={15} strokeWidth={2.2} />
-                  Partly cloudy
+                  {notes?.weather?.label ?? "—"}
                 </span>
 
                 <span>
                   <Thermometer size={15} strokeWidth={2.2} />
-                  28°C
+                  {notes?.weather ? `${notes.weather.temp_c}°C` : "—"}
                 </span>
               </div>
 
@@ -232,11 +265,28 @@ function Home() {
             <div className="smart-notes-grid">
               {smartNotes.map((note) => {
                 const Icon = note.icon;
+                // Cards with a source link render as <a> so they're real,
+                // accessible links (middle-click, keyboard, SEO) — style
+                // overrides keep them visually identical to the <article>s.
+                const Card = note.href ? "a" : "article";
+                const linkProps = note.href
+                  ? {
+                      href: note.href,
+                      target: "_blank",
+                      rel: "noreferrer",
+                      style: {
+                        color: "inherit",
+                        textDecoration: "none",
+                        cursor: "pointer",
+                      },
+                    }
+                  : {};
 
                 return (
-                  <article
+                  <Card
                     className={`smart-note-card smart-note-${note.variant}`}
                     key={note.title}
+                    {...linkProps}
                   >
                     <div className="smart-note-content">
                       <span className="smart-note-icon">
@@ -245,9 +295,32 @@ function Home() {
 
                       <h4>{note.title}</h4>
                       <p>{note.label}</p>
-                      <strong>{note.value}</strong>
 
-                      {note.note && <small>{note.note}</small>}
+                      {note.lines ? (
+                        note.lines.length ? (
+                          note.lines.map((line) => (
+                            <strong
+                              key={line}
+                              style={{
+                                display: "block",
+                                fontSize: "0.82em",
+                                whiteSpace: "nowrap",
+                                overflow: "hidden",
+                                textOverflow: "ellipsis",
+                              }}
+                            >
+                              {line}
+                            </strong>
+                          ))
+                        ) : (
+                          <strong>—</strong>
+                        )
+                      ) : (
+                        <>
+                          <strong>{note.value}</strong>
+                          {note.note && <small>{note.note}</small>}
+                        </>
+                      )}
                     </div>
 
                     <img
@@ -256,7 +329,7 @@ function Home() {
                       className="smart-note-illustration"
                       aria-hidden="true"
                     />
-                  </article>
+                  </Card>
                 );
               })}
             </div>
