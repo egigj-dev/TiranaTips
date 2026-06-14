@@ -15,6 +15,10 @@ import {
   MessageCircle,
   Compass,
   Leaf,
+  Building2,
+  Music,
+  Construction,
+  BadgePercent,
 } from "lucide-react";
 
 import { getCityNotes } from "../../lib/api";
@@ -25,33 +29,50 @@ import airportNoteImg from "../../assets/home/airport-note.png";
 import eventsNoteImg from "../../assets/home/events-note.png";
 
 function Home() {
-  // Live data for the hero + Smart Local Notes. null until the backend's
-  // first refresh completes — cards render "—" placeholders meanwhile.
   const [notes, setNotes] = useState(null);
 
   useEffect(() => {
-    getCityNotes().then(setNotes).catch(console.error);
+    const loadCityNotes = () => {
+      getCityNotes().then(setNotes).catch(console.error);
+    };
+
+    loadCityNotes();
+
+    const interval = setInterval(loadCityNotes, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  // Real date, formatted like the old mock ("Sunday, May 31").
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
 
+  const formatTime = (isoDate) => {
+    if (!isoDate) return "Updating";
+
+    return new Date(isoDate).toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   const eur = notes?.exchange?.rates?.EUR;
-  // "Basel-Mulhouse-Freiburg (FR)" / "Athens / Athine (GR)" → "Basel-Mulhouse-Freiburg",
-  // "Athens" — cards have no room for country codes and bilingual aliases.
+
   const shortCity = (city) =>
     city.replace(/\s*\([A-Z]{2}\)\s*$/, "").split(" / ")[0].trim();
+
   const flightLine = (f) => (f ? `${f.time} · ${shortCity(f.city)}` : null);
+
   const flightLines = (section) =>
     (section?.flights ?? []).slice(0, 3).map(flightLine).filter(Boolean);
+
   const dep = flightLines(notes?.departures);
   const arr = flightLines(notes?.arrivals);
 
   const hour = new Date().getHours();
+
   const greeting =
     hour < 12 ? "Good morning," : hour < 18 ? "Good afternoon," : "Good evening,";
 
@@ -60,6 +81,7 @@ function Home() {
     { icon: BriefcaseBusiness, label: "Visitors" },
     { icon: GraduationCap, label: "Students" },
     { icon: LaptopMinimal, label: "Digital nomads" },
+    { icon: Building2, label: "Business / Investor" },
   ];
 
   const smartNotes = [
@@ -102,72 +124,96 @@ function Home() {
     },
   ];
 
+  const weatherUpdatedTime = formatTime(notes?.weather?.fetched_at);
+
   const rightNowUpdates = [
     {
-      icon: "🌧️",
-      title: "Rain expected after 5pm",
-      text: "Best to carry an umbrella.",
-      time: "8:30 AM",
+      icon: CloudSun,
+      category: "Weather",
+      title: notes?.weather?.alert_title || "Loading weather update",
+      text:
+        notes?.weather?.alert_text ||
+        "Checking the latest Tirana weather from the backend.",
+      time: weatherUpdatedTime,
+      variant: "weather",
     },
     {
-      icon: "🎵",
+      icon: Music,
+      category: "Events",
       title: "Live music near Skanderbeg Square",
       text: "Performance starts at 9pm.",
       time: "9:00 AM",
+      variant: "event",
     },
     {
-      icon: "🚧",
+      icon: Construction,
+      category: "Traffic",
       title: "Rruga “Ismail Qemali” partially closed",
       text: "Avoid area until 7pm.",
       time: "7:45 AM",
+      variant: "traffic",
     },
     {
-      icon: "🍸",
-      title: "Jazz at Radio Bar",
-      text: "Live set tonight, cozy vibe.",
+      icon: BadgePercent,
+      category: "Deals",
+      title: "Student museum discount",
+      text: "Save on selected museums and culture spots today.",
       time: "10:00 AM",
+      variant: "deal",
     },
   ];
 
-  const cityLens = [
+  const explorePreview = [
     {
       image:
-        "https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=900&q=80",
-      tag: "Local Favorites",
-      title: "Hidden spots loved by locals.",
+        "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=900&q=80",
+      tag: "Food & Cafés",
+      title: "Restaurants, brunch, coffee and work spots.",
+      href: "/explore#food-cafes",
     },
     {
       image:
-        "https://images.unsplash.com/photo-1587974928442-77dc3e0dba72?auto=format&fit=crop&w=900&q=80",
-      tag: "First Time in Tirana",
-      title: "Must-see places & easy wins.",
+        "https://images.unsplash.com/photo-1564399579883-451a5d44ec08?auto=format&fit=crop&w=900&q=80",
+      tag: "Attractions & Culture",
+      title: "Museums, landmarks, history and photo spots.",
+      href: "/explore#attractions-culture",
     },
     {
       image:
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80",
-      tag: "Slow & Scenic",
-      title: "Nature, walks & peaceful corners.",
+        "https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=900&q=80",
+      tag: "City Guide",
+      title: "Weather, exchange, emergency numbers and useful phrases.",
+      href: "/explore#city-guide",
+    },
+    {
+      image:
+        "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=900&q=80",
+      tag: "Day Trips",
+      title: "Dajti, Bovilla, Kruja, Berat and more.",
+      href: "/explore#day-trips",
     },
   ];
 
   const globalCards = [
     {
-      icon: "🌍",
-      title: "For Visitors",
-      text: "Top attractions, local tips, and things you’ll love.",
+      icon: "📰",
+      title: "Tirana in the press",
+      text: "Global articles, travel features, and international media mentions about Tirana.",
+      meta: "Media · Newspapers · Travel magazines",
     },
     {
-      icon: "🎓",
-      title: "For Students",
-      text: "A growing city with culture, uni vibes, and affordable daily life.",
+      icon: "📍",
+      title: "Travel creator picks",
+      text: "Places mentioned by bloggers, YouTubers, TikTokers, and travel creators.",
+      meta: "Blogs · Reels · YouTube",
     },
     {
-      icon: "💻",
-      title: "For Digital Nomads",
-      text: "Why Tirana is becoming a remote work hub.",
+      icon: "💬",
+      title: "Nomad & student notes",
+      text: "What foreigners say about living, studying, working, and exploring the city.",
+      meta: "Nomads · Students · Expats",
     },
   ];
-
   return (
     <main className="home-page">
       <section className="home-hero">
@@ -253,7 +299,9 @@ function Home() {
                 Active city
               </span>
 
-              <p className="city-note">Tirana is moving today.</p>
+              <p className="city-note">
+                {notes?.weather?.alert_text || "Tirana is moving today."}
+              </p>
             </div>
           </div>
 
@@ -265,21 +313,19 @@ function Home() {
             <div className="smart-notes-grid">
               {smartNotes.map((note) => {
                 const Icon = note.icon;
-                // Cards with a source link render as <a> so they're real,
-                // accessible links (middle-click, keyboard, SEO) — style
-                // overrides keep them visually identical to the <article>s.
                 const Card = note.href ? "a" : "article";
+
                 const linkProps = note.href
                   ? {
-                      href: note.href,
-                      target: "_blank",
-                      rel: "noreferrer",
-                      style: {
-                        color: "inherit",
-                        textDecoration: "none",
-                        cursor: "pointer",
-                      },
-                    }
+                    href: note.href,
+                    target: "_blank",
+                    rel: "noreferrer",
+                    style: {
+                      color: "inherit",
+                      textDecoration: "none",
+                      cursor: "pointer",
+                    },
+                  }
                   : {};
 
                 return (
@@ -351,33 +397,53 @@ function Home() {
         </div>
 
         <div className="right-now-grid">
-          {rightNowUpdates.map((item) => (
-            <article className="right-now-card" key={item.title}>
-              <span className="right-now-icon">{item.icon}</span>
+          {rightNowUpdates.map((item) => {
+            const Icon = item.icon;
 
-              <div>
-                <h3>{item.title}</h3>
-                <p>{item.text}</p>
-                <small>{item.time}</small>
-              </div>
-            </article>
-          ))}
+            return (
+              <article
+                className={`right-now-card right-now-${item.variant}`}
+                key={item.title}
+              >
+                <span className="right-now-icon">
+                  <Icon size={21} strokeWidth={2.3} />
+                </span>
+
+                <div className="right-now-content">
+                  <span className="right-now-category">{item.category}</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                  <small>Updated {item.time}</small>
+                </div>
+              </article>
+            );
+          })}
         </div>
       </section>
 
       <section className="ask-preview-section">
         <div className="ask-preview-left">
+          <span className="ask-preview-pill">AI local assistant</span>
+
           <h2>Ask TiranaTips</h2>
+
+          <p>
+            Need a quick local answer? Ask about food, weather plans, safety,
+            transport, nightlife, or what to do today.
+          </p>
+
+          <a href="/ask" className="ask-preview-btn">
+            Open Ask Tirana <span>→</span>
+          </a>
         </div>
 
-        <div className="chat-preview">
+        <a href="/ask" className="chat-preview" aria-label="Open Ask Tirana">
           <div className="chat-bubble user-bubble">
             What can I do in Tirana today if I want something calm?
             <small>10:30 AM</small>
           </div>
 
           <div className="chat-answer">
-
             <div className="chat-bubble ai-bubble">
               <strong>TiranaTips</strong>
               Start with coffee near Blloku, take a walk around the lake, then
@@ -385,66 +451,65 @@ function Home() {
               <small>10:31 AM</small>
             </div>
           </div>
-        </div>
-
-        <div className="try-asking">
-          <h3>Try asking</h3>
-
-          <a href="/ask">
-            Where should I eat near Blloku? <span>›</span>
-          </a>
-
-          <a href="/ask">
-            What can I do if it rains? <span>›</span>
-          </a>
-
-          <a href="/ask">
-            Is Tirana safe at night? <span>›</span>
-          </a>
-
-          <a href="/ask">
-            Best areas for first-time visitors? <span>›</span>
-          </a>
-        </div>
+        </a>
       </section>
 
-      <section className="city-lens-section">
-        <div className="city-lens-intro">
-          <h2>Choose your city lens</h2>
+      <section className="explore-preview-section">
+        <div className="explore-preview-intro">
 
-          <div className="lens-tabs">
-            <button className="active">Local</button>
-            <button>First Visit</button>
-            <button>Student Life</button>
-            <button>Calm Day</button>
-          </div>
+          <h2>Start exploring Tirana</h2>
+
+          <p>
+            Browse food, attractions, events, transport, city guide, day trips
+            and deals from one place.
+          </p>
+
+          <a href="/explore" className="explore-preview-link">
+            Open Explore <span>→</span>
+          </a>
         </div>
 
-        <div className="city-lens-grid">
-          {cityLens.map((item) => (
-            <article className="lens-card" key={item.tag}>
+        <div className="explore-preview-grid">
+          {explorePreview.map((item) => (
+            <a className="explore-preview-card" href={item.href} key={item.tag}>
               <img src={item.image} alt={item.tag} />
 
-              <div className="lens-card-content">
+              <div className="explore-preview-card-content">
                 <h3>{item.tag}</h3>
                 <p>{item.title}</p>
                 <span>→</span>
               </div>
-            </article>
+            </a>
           ))}
         </div>
       </section>
 
       <section className="global-preview-section">
-        <h2>Tirana, seen globally.</h2>
+        <div className="global-preview-header">
+
+          <div>
+            <h2>Tirana, seen globally.</h2>
+            <p>
+              International articles, travel guides, creators and media mentions
+              shaping how the world sees Tirana.
+            </p>
+          </div>
+
+        </div>
 
         <div className="global-preview-grid">
           {globalCards.map((card) => (
-            <article className="global-card" key={card.title}>
+            <a href="/global" className="global-card" key={card.title}>
               <span>{card.icon}</span>
-              <h3>{card.title}</h3>
-              <p>{card.text}</p>
-            </article>
+
+              <div>
+                <h3>{card.title}</h3>
+                <p>{card.text}</p>
+                <small>{card.meta}</small>
+              </div>
+
+              <b>→</b>
+            </a>
           ))}
         </div>
       </section>

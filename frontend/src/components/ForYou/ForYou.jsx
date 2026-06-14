@@ -29,6 +29,11 @@ import {
   MapPin,
   Star,
   Navigation,
+  Home,
+  BookOpen,
+  Camera,
+  Laptop,
+  BriefcaseBusiness,
 } from "lucide-react";
 
 const mapMarkerIcon = new L.Icon({
@@ -40,8 +45,6 @@ const mapMarkerIcon = new L.Icon({
   shadowSize: [41, 41],
 });
 
-// Backend token → display label (same maps as Register; backend stores
-// lowercase tokens like "nomad" / "study_work_cafes").
 const MODE_LABELS = {
   local: "Local",
   student: "Student",
@@ -69,10 +72,6 @@ const label = (map, token) => (token ? map[token] || prettify(token) : null);
 
 function ForYou() {
   const [authView, setAuthView] = useState(null);
-
-  // Real personalization state: with anonymous users there is no "login",
-  // so "logged in" = the localStorage user has completed onboarding
-  // (backend's `onboarded` flag = at least one meaningful preference set).
   const [prefs, setPrefs] = useState(null);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
 
@@ -181,27 +180,27 @@ function GuestForYou({ forYouHeroBg, onOpenRegister, onOpenLogin }) {
 
   const modes = [
     {
-      icon: "⌂",
+      icon: Home,
       title: "Local",
       text: "Live like a local",
     },
     {
-      icon: "▱",
+      icon: BookOpen,
       title: "Student",
       text: "Budget friendly & practical",
     },
     {
-      icon: "▣",
+      icon: Camera,
       title: "Tourist",
       text: "Discover & explore",
     },
     {
-      icon: "▭",
+      icon: Laptop,
       title: "Digital Nomad",
       text: "Work, stay & explore",
     },
     {
-      icon: "▤",
+      icon: BriefcaseBusiness,
       title: "Business Visitor",
       text: "Work trips & meetings",
     },
@@ -260,16 +259,22 @@ function GuestForYou({ forYouHeroBg, onOpenRegister, onOpenLogin }) {
           <h2>Choose how you experience Tirana</h2>
 
           <div className="mode-grid">
-            {modes.map((mode) => (
-              <button type="button" className="mode-card" key={mode.title}>
-                <span>{mode.icon}</span>
+            {modes.map((mode) => {
+              const Icon = mode.icon;
 
-                <div>
-                  <h3>{mode.title}</h3>
-                  <p>{mode.text}</p>
-                </div>
-              </button>
-            ))}
+              return (
+                <button type="button" className="mode-card" key={mode.title}>
+                  <span className="mode-icon">
+                    <Icon size={21} strokeWidth={2.25} />
+                  </span>
+
+                  <div>
+                    <h3>{mode.title}</h3>
+                    <p>{mode.text}</p>
+                  </div>
+                </button>
+              );
+            })}
           </div>
         </section>
 
@@ -301,8 +306,6 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
   const [showFullMap, setShowFullMap] = useState(false);
   const [showSavedModal, setShowSavedModal] = useState(false);
 
-  // Real interests from saved preferences; demo list as fallback for the
-  // "Preview: Logged in" toggle when nothing is saved yet.
   const interests =
     prefs?.interests?.length > 0
       ? prefs.interests.map((i) => label(INTEREST_LABELS, i))
@@ -317,9 +320,6 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
           "Day trips",
         ];
 
-  // DEMO DATA — there is no saved-places backend yet (planned with the
-  // structured places table). Everything below the preferences strip that
-  // shows places/maps still renders this mock list.
   const savedPlaces = [
     {
       name: "Mullixhiu",

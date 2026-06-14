@@ -8,12 +8,12 @@ import Ask from "./components/Ask/Ask";
 import ForYou from "./components/ForYou/ForYou";
 import Login from "./components/Authentication/Login";
 import { checkSession, logout as apiLogout } from "./lib/api";
+import Explore from "./components/Explore/Explore";
 
 function App() {
-  const [isAuthenticated, setIsAuthenticated] = useState(null); // null = checking
+  const [isAuthenticated, setIsAuthenticated] = useState(null);
   const [displayName, setDisplayName] = useState("");
 
-  // On mount, check if there's a valid session
   useEffect(() => {
     checkSession().then((valid) => {
       setIsAuthenticated(valid);
@@ -31,12 +31,10 @@ function App() {
     setDisplayName("");
   };
 
-  // While checking session, show a loading state
   if (isAuthenticated === null) {
     return <div className="app-loading">Loading...</div>;
   }
 
-  // If not authenticated, show login modal and block everything else
   if (!isAuthenticated) {
     return (
       <>
@@ -47,7 +45,6 @@ function App() {
     );
   }
 
-  // Authenticated — show the full app
   return (
     <>
       <Navigation
@@ -58,6 +55,7 @@ function App() {
 
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/explore" element={<Explore />} />
         <Route path="/ask" element={<Ask />} />
         <Route path="/foryou" element={<ForYou />} />
         <Route path="*" element={<Navigate to="/" replace />} />
