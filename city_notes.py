@@ -74,48 +74,93 @@ def _fetch_weather() -> dict:
             "latitude": TIRANA_LAT,
             "longitude": TIRANA_LON,
             "current": "temperature_2m,weather_code",
-            # Next 12h of rain probability → a useful "rain expected ~3pm" line.
-            "hourly": "precipitation_probability,weather_code",
-            "forecast_hours": 12,
+            "hourly": "precipitation_probability,weather_code,temperature_2m",
+            "forecast_days": 1,
             "timezone": "Europe/Tirane",
         },
         timeout=10,
     )
     r.raise_for_status()
+
     data = r.json()
     cur = data["current"]
-    return {
-        "temp_c": round(cur["temperature_2m"]),
-        "label": _WMO.get(int(cur["weather_code"]), "—"),
-        "forecast": _forecast_line(data.get("hourly", {})),
-        "fetched_at": datetime.utcnow().isoformat(),
+    hourly = data.get("hourly", {})
+
+    times = hourly.get("time", [])
+    rain_probs = hourly.get("precipitation_probability", [])
+    hourly_codes = hourly.get("weather_code", [])
+    hourly_temps = hourly.get("temperature_2m", [])
+
+    # Open-Meteo returns hourly times in Europe/Tirane because timezone is set.
+    # Make now_local naive too, so comparison works safely.
+    from zoneinfo import ZoneInfo
+
+    now_local = datetime.now(ZoneInfo("Europe/Tirane")).replace(tzinfo=None)
+
+    next_rain = None
+    max_rain_probability = None
+
+    rain_codes = {
+        51, 53, 55,      # Drizzle
+        61, 63, 65,      # Rain
+        80, 81, 82,      # Showers
+        95, 96, 99,      # Thunderstorm
     }
 
+    for i, time_str in enumerate(times):
+        try:
+            hour_time = datetime.fromisoformat(time_str)
+        except ValueError:
+            continue
 
-def _forecast_line(hourly: dict) -> str:
-    """A short, informative outlook from the next 12 hours. Prefers the first
-    hour with a meaningful rain chance ("Rain likely around 3 PM"); otherwise
-    summarizes the prevailing sky ("Clear through the evening")."""
-    times = hourly.get("time", [])
-    probs = hourly.get("precipitation_probability", [])
-    codes = hourly.get("weather_code", [])
-    if not times:
-        return ""
+        if hour_time < now_local:
+            continue
 
-    # First hour with rain probability >= 50% within the window.
-    for t, p in zip(times, probs):
-        if p is not None and p >= 50:
-            hour = datetime.fromisoformat(t).strftime("%-I %p")
-            return f"Rain likely around {hour}"
+        probability = rain_probs[i] if i < len(rain_probs) else None
+        code = hourly_codes[i] if i < len(hourly_codes) else None
+        temp = hourly_temps[i] if i < len(hourly_temps) else None
 
-    # No rain — describe the dominant condition over the window.
-    labels = [_WMO.get(int(c), "") for c in codes if c is not None]
-    if labels:
-        dominant = max(set(labels), key=labels.count)
-        return f"{dominant} for the next few hours"
-    return ""
+        if probability is not None:
+            max_rain_probability = (
+                probability
+                if max_rain_probability is None
+                else max(max_rain_probability, probability)
+            )
 
+        is_rain_code = code in rain_codes if code is not None else False
 
+        if (probability is not None and probability >= 45) or is_rain_code:
+            next_rain = {
+                "time": hour_time.strftime("%H:%M"),
+                "probability": probability,
+                "temp_c": round(temp) if temp is not None else None,
+                "label": _WMO.get(int(code), "Rain") if code is not None else "Rain",
+            }
+            break
+
+    current_label = _WMO.get(int(cur["weather_code"]), "—")
+    current_temp = round(cur["temperature_2m"])
+
+    if next_rain:
+        alert_title = f"{next_rain['label']} possible around {next_rain['time']}"
+        alert_text = (
+            f"{next_rain['probability']}% chance of rain. Best to carry an umbrella."
+            if next_rain.get("probability") is not None
+            else "Best to carry an umbrella."
+        )
+    else:
+        alert_title = f"{current_label} in Tirana"
+        alert_text = f"Currently around {current_temp}°C."
+
+    return {
+        "temp_c": current_temp,
+        "label": current_label,
+        "alert_title": alert_title,
+        "alert_text": alert_text,
+        "next_rain": next_rain,
+        "max_rain_probability": max_rain_probability,
+        "fetched_at": datetime.utcnow().isoformat(),
+    }
 # ---------------------------------------------------------------------------
 # Exchange rates — Iliria'98 homepage table
 # ---------------------------------------------------------------------------

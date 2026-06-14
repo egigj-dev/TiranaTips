@@ -108,3 +108,87 @@ code {
   padding: 4px 8px;
   background: var(--code-bg);
 }
+
+/* GLOBAL TIRANATIPS LOGO ICON */
+.tt-logo-icon {
+  width: 38px;
+  height: 38px;
+  border: 1.8px solid #1f5a2e;
+  border-radius: 18px 18px 6px 6px;
+  position: relative;
+  display: inline-flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  box-sizing: border-box;
+  flex: 0 0 auto;
+}
+
+.tt-logo-icon::before {
+  content: "";
+  position: absolute;
+  width: 18px;
+  height: 26px;
+  border: 1.8px solid #1f5a2e;
+  border-bottom: none;
+  border-radius: 14px 14px 0 0;
+  top: 7px;
+  left: 50%;
+  transform: translateX(-50%);
+  box-sizing: border-box;
+}
+
+.tt-logo-icon::after {
+  content: "";
+  width: 5px;
+  height: 12px;
+  background: #1f5a2e;
+  border-radius: 5px 5px 0 0;
+  z-index: 1;
+}
+
+/* Small version for compact places */
+.tt-logo-icon.sm {
+  width: 34px;
+  height: 34px;
+  border-width: 1.7px;
+  border-radius: 16px 16px 6px 6px;
+  padding-bottom: 5px;
+}
+
+.tt-logo-icon.sm::before {
+  width: 16px;
+  height: 23px;
+  border-width: 1.7px;
+  border-radius: 12px 12px 0 0;
+  top: 6px;
+}
+
+.tt-logo-icon.sm::after {
+  width: 4px;
+  height: 10px;
+}
+
+/* Large faded version for decorative/background logo */
+.tt-logo-icon.lg-faded {
+  width: 76px;
+  height: 76px;
+  border-width: 2.4px;
+  border-radius: 32px 32px 12px 12px;
+  padding-bottom: 12px;
+  opacity: 0.16;
+}
+
+.tt-logo-icon.lg-faded::before {
+  width: 36px;
+  height: 52px;
+  border-width: 2.4px;
+  border-radius: 24px 24px 0 0;
+  top: 13px;
+}
+
+.tt-logo-icon.lg-faded::after {
+  width: 8px;
+  height: 21px;
+  border-radius: 8px 8px 0 0;
+}

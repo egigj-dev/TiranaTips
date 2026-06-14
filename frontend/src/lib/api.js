@@ -8,6 +8,9 @@
 // so a cross-origin dev setup (Vite on :5173 → API on :8000) also works.
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
+// Log the resolved API base on load so the developer can verify routing
+console.log("[api] API_BASE =", JSON.stringify(API_BASE), "— all fetch requests will go to:", API_BASE || "(same origin, relies on Vite proxy)");
+
 // ---------------------------------------------------------------------------
 // Identity — the backend is anonymous-by-design: user_id is "whatever UUID
 // the client generated and kept in localStorage" (see main.py preferences
@@ -241,3 +244,10 @@ export const getEvents = (days = 30, category = null) => {
   if (category) qs.set("category", category);
   return request(`/events?${qs.toString()}`);
 };
+
+// ---------------------------------------------------------------------------
+// Authentication — pure-frontend, no backend calls.
+// Re-exported from ./auth.js which validates against local users.json.
+// ---------------------------------------------------------------------------
+
+export { login, logout, checkSession, getSessionToken } from "./auth.js";

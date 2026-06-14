@@ -15,6 +15,10 @@ import {
   MessageCircle,
   Compass,
   Leaf,
+  Building2,
+  Music,
+  Construction,
+  BadgePercent,
 } from "lucide-react";
 
 import { getCityNotes } from "../../lib/api";
@@ -26,7 +30,8 @@ import eventsNoteImg from "../../assets/home/events-note.png";
 
 // Tirana's international recognition — hardcoded editorial content. Slow-
 // changing (a few entries a year), so a committed list is the right amount of
-// engineering; each links to its primary source.
+// engineering; each links to its primary source. Rendered as a bento grid in
+// the "Tirana, seen globally" section.
 const ACHIEVEMENTS = [
   {
     year: "2018",
@@ -34,13 +39,7 @@ const ACHIEVEMENTS = [
     blurb:
       "Skanderbeg Square won Europe's top public-space award, beating 279 candidates from 32 countries for its pedestrian-first redesign.",
     href: "https://ruby-press.com/skanderbeg-square-by-51n4e-and-anri-sala-wins-european-prize-for-urban-public-space/",
-  },
-  {
-    year: "2022",
-    title: "European Youth Capital",
-    blurb:
-      "Awarded the year-long title by the European Youth Forum, running 100+ events under the slogan \u201cActivate Youth.\u201d",
-    href: "https://www.youthforum.org/news/congratulations-tirana-winner-of-the-european-youth-capital-for-2022",
+    size: "large",
   },
   {
     year: "2023",
@@ -48,13 +47,23 @@ const ACHIEVEMENTS = [
     blurb:
       "MVRDV transformed the communist-era Pyramid into a public creative hub, home to the TUMO Center for free tech education.",
     href: "https://www.mvrdv.com/projects/312/the-pyramid-of-tirana",
+    size: "tall",
+  },
+  {
+    year: "2022",
+    title: "European Youth Capital",
+    blurb:
+      "Awarded the year-long title by the European Youth Forum, running 100+ events under the slogan \u201cActivate Youth.\u201d",
+    href: "https://www.youthforum.org/news/congratulations-tirana-winner-of-the-european-youth-capital-for-2022",
+    size: "small",
   },
   {
     year: "2024",
     title: "Lonely Planet Spotlight",
     blurb:
-      "Featured in Lonely Planet's global travel guides, introducing Tirana to mainstream travelers as a dynamic European destination.",
+      "Featured in Lonely Planet's global travel guides, introducing Tirana to mainstream travelers.",
     href: "https://www.lonelyplanet.com/",
+    size: "small",
   },
   {
     year: "2024",
@@ -62,44 +71,63 @@ const ACHIEVEMENTS = [
     blurb:
       "Honored at the ANGI Awards in Rome for e-governance, smart infrastructure, and grassroots tech support.",
     href: "https://www.giovaniinnovatori.it/",
+    size: "small",
   },
   {
     year: "2025",
     title: "Startup Ecosystem Growth",
     blurb:
-      "Recorded +40.5% annual growth (StartupBlink), ranking as the 32nd strongest startup environment in Eastern Europe.",
+      "Recorded +40.5% annual growth (StartupBlink), now the 32nd strongest startup environment in Eastern Europe.",
     href: "https://www.startupblink.com/startup-ecosystem/tirana-al",
+    size: "wide",
   },
 ];
 
 function Home() {
-  // Live data for the hero + Smart Local Notes. null until the backend's
-  // first refresh completes — cards render "—" placeholders meanwhile.
   const [notes, setNotes] = useState(null);
 
   useEffect(() => {
-    getCityNotes().then(setNotes).catch(console.error);
+    const loadCityNotes = () => {
+      getCityNotes().then(setNotes).catch(console.error);
+    };
+
+    loadCityNotes();
+
+    const interval = setInterval(loadCityNotes, 5 * 60 * 1000);
+
+    return () => clearInterval(interval);
   }, []);
 
-  // Real date, formatted like the old mock ("Sunday, May 31").
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
     month: "long",
     day: "numeric",
   });
 
+  const formatTime = (isoDate) => {
+    if (!isoDate) return "Updating";
+
+    return new Date(isoDate).toLocaleTimeString("en-GB", {
+      hour: "2-digit",
+      minute: "2-digit",
+    });
+  };
+
   const eur = notes?.exchange?.rates?.EUR;
-  // "Basel-Mulhouse-Freiburg (FR)" / "Athens / Athine (GR)" → "Basel-Mulhouse-Freiburg",
-  // "Athens" — cards have no room for country codes and bilingual aliases.
+
   const shortCity = (city) =>
     city.replace(/\s*\([A-Z]{2}\)\s*$/, "").split(" / ")[0].trim();
+
   const flightLine = (f) => (f ? `${f.time} · ${shortCity(f.city)}` : null);
+
   const flightLines = (section) =>
     (section?.flights ?? []).slice(0, 3).map(flightLine).filter(Boolean);
+
   const dep = flightLines(notes?.departures);
   const arr = flightLines(notes?.arrivals);
 
   const hour = new Date().getHours();
+
   const greeting =
     hour < 12 ? "Good morning," : hour < 18 ? "Good afternoon," : "Good evening,";
 
@@ -108,6 +136,7 @@ function Home() {
     { icon: BriefcaseBusiness, label: "Visitors" },
     { icon: GraduationCap, label: "Students" },
     { icon: LaptopMinimal, label: "Digital nomads" },
+    { icon: Building2, label: "Business / Investor" },
   ];
 
   const smartNotes = [
@@ -150,69 +179,73 @@ function Home() {
     },
   ];
 
+  const weatherUpdatedTime = formatTime(notes?.weather?.fetched_at);
+
   const rightNowUpdates = [
     {
-      icon: "🌧️",
-      title: "Rain expected after 5pm",
-      text: "Best to carry an umbrella.",
-      time: "8:30 AM",
+      icon: CloudSun,
+      category: "Weather",
+      title: notes?.weather?.alert_title || "Loading weather update",
+      text:
+        notes?.weather?.alert_text ||
+        "Checking the latest Tirana weather from the backend.",
+      time: weatherUpdatedTime,
+      variant: "weather",
     },
     {
-      icon: "🎵",
+      icon: Music,
+      category: "Events",
       title: "Live music near Skanderbeg Square",
       text: "Performance starts at 9pm.",
       time: "9:00 AM",
+      variant: "event",
     },
     {
-      icon: "🚧",
+      icon: Construction,
+      category: "Traffic",
       title: "Rruga “Ismail Qemali” partially closed",
       text: "Avoid area until 7pm.",
       time: "7:45 AM",
+      variant: "traffic",
     },
     {
-      icon: "🍸",
-      title: "Jazz at Radio Bar",
-      text: "Live set tonight, cozy vibe.",
+      icon: BadgePercent,
+      category: "Deals",
+      title: "Student museum discount",
+      text: "Save on selected museums and culture spots today.",
       time: "10:00 AM",
+      variant: "deal",
     },
   ];
 
-  const cityLens = [
+  const explorePreview = [
     {
       image:
-        "https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=900&q=80",
-      tag: "Local Favorites",
-      title: "Hidden spots loved by locals.",
-    },
-    {
-      image:
-        "https://images.unsplash.com/photo-1587974928442-77dc3e0dba72?auto=format&fit=crop&w=900&q=80",
-      tag: "First Time in Tirana",
-      title: "Must-see places & easy wins.",
+        "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=900&q=80",
+      tag: "Food & Cafés",
+      title: "Restaurants, brunch, coffee and work spots.",
+      href: "/explore#food-cafes",
     },
     {
       image:
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=900&q=80",
-      tag: "Slow & Scenic",
-      title: "Nature, walks & peaceful corners.",
-    },
-  ];
-
-  const globalCards = [
-    {
-      icon: "🌍",
-      title: "For Visitors",
-      text: "Top attractions, local tips, and things you’ll love.",
+        "https://images.unsplash.com/photo-1564399579883-451a5d44ec08?auto=format&fit=crop&w=900&q=80",
+      tag: "Attractions & Culture",
+      title: "Museums, landmarks, history and photo spots.",
+      href: "/explore#attractions-culture",
     },
     {
-      icon: "🎓",
-      title: "For Students",
-      text: "A growing city with culture, uni vibes, and affordable daily life.",
+      image:
+        "https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=900&q=80",
+      tag: "City Guide",
+      title: "Weather, exchange, emergency numbers and useful phrases.",
+      href: "/explore#city-guide",
     },
     {
-      icon: "💻",
-      title: "For Digital Nomads",
-      text: "Why Tirana is becoming a remote work hub.",
+      image:
+        "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=900&q=80",
+      tag: "Day Trips",
+      title: "Dajti, Bovilla, Kruja, Berat and more.",
+      href: "/explore#day-trips",
     },
   ];
 
@@ -297,7 +330,7 @@ function Home() {
               </div>
 
               <p className="city-note">
-                {notes?.weather?.forecast || "Have a great day in Tirana."}
+                {notes?.weather?.alert_text || "Have a great day in Tirana."}
               </p>
             </div>
           </div>
@@ -310,21 +343,19 @@ function Home() {
             <div className="smart-notes-grid">
               {smartNotes.map((note) => {
                 const Icon = note.icon;
-                // Cards with a source link render as <a> so they're real,
-                // accessible links (middle-click, keyboard, SEO) — style
-                // overrides keep them visually identical to the <article>s.
                 const Card = note.href ? "a" : "article";
+
                 const linkProps = note.href
                   ? {
-                      href: note.href,
-                      target: "_blank",
-                      rel: "noreferrer",
-                      style: {
-                        color: "inherit",
-                        textDecoration: "none",
-                        cursor: "pointer",
-                      },
-                    }
+                    href: note.href,
+                    target: "_blank",
+                    rel: "noreferrer",
+                    style: {
+                      color: "inherit",
+                      textDecoration: "none",
+                      cursor: "pointer",
+                    },
+                  }
                   : {};
 
                 return (
@@ -396,30 +427,73 @@ function Home() {
         </div>
 
         <div className="right-now-grid">
-          {rightNowUpdates.map((item) => (
-            <article className="right-now-card" key={item.title}>
-              <span className="right-now-icon">{item.icon}</span>
+          {rightNowUpdates.map((item) => {
+            const Icon = item.icon;
 
-              <div>
-                <h3>{item.title}</h3>
-                <p>{item.text}</p>
-                <small>{item.time}</small>
+            return (
+              <article
+                className={`right-now-card right-now-${item.variant}`}
+                key={item.title}
+              >
+                <span className="right-now-icon">
+                  <Icon size={21} strokeWidth={2.3} />
+                </span>
+
+                <div className="right-now-content">
+                  <span className="right-now-category">{item.category}</span>
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                  <small>Updated {item.time}</small>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="explore-preview-section">
+        <div className="explore-preview-intro">
+          <h2>Start exploring Tirana</h2>
+
+          <p>
+            Browse food, attractions, events, transport, city guide, day trips
+            and deals from one place.
+          </p>
+
+          <a href="/explore" className="explore-preview-link">
+            Open Explore <span>→</span>
+          </a>
+        </div>
+
+        <div className="explore-preview-grid">
+          {explorePreview.map((item) => (
+            <a className="explore-preview-card" href={item.href} key={item.tag}>
+              <img src={item.image} alt={item.tag} />
+
+              <div className="explore-preview-card-content">
+                <h3>{item.tag}</h3>
+                <p>{item.title}</p>
+                <span>→</span>
               </div>
-            </article>
+            </a>
           ))}
         </div>
       </section>
 
-      <section className="achievements-section">
-        <div className="achievements-intro">
-          <h2>Why the world is talking about Tirana</h2>
-          <p>Recent international recognition for the city.</p>
+      <section className="global-preview-section">
+        <div className="global-preview-header">
+          <div>
+            <h2>Tirana, seen globally.</h2>
+            <p>
+              International recognition shaping how the world sees the city.
+            </p>
+          </div>
         </div>
 
-        <div className="achievements-grid">
+        <div className="achievements-bento">
           {ACHIEVEMENTS.map((a) => (
             <a
-              className="achievement-card"
+              className={`achievement-tile achievement-${a.size}`}
               key={a.year + a.title}
               href={a.href}
               target="_blank"
@@ -430,47 +504,6 @@ function Home() {
               <p>{a.blurb}</p>
               <span className="achievement-more">Read more →</span>
             </a>
-          ))}
-        </div>
-      </section>
-
-      <section className="city-lens-section">
-        <div className="city-lens-intro">
-          <h2>Choose your city lens</h2>
-
-          <div className="lens-tabs">
-            <button className="active">Local</button>
-            <button>First Visit</button>
-            <button>Student Life</button>
-            <button>Calm Day</button>
-          </div>
-        </div>
-
-        <div className="city-lens-grid">
-          {cityLens.map((item) => (
-            <article className="lens-card" key={item.tag}>
-              <img src={item.image} alt={item.tag} />
-
-              <div className="lens-card-content">
-                <h3>{item.tag}</h3>
-                <p>{item.title}</p>
-                <span>→</span>
-              </div>
-            </article>
-          ))}
-        </div>
-      </section>
-
-      <section className="global-preview-section">
-        <h2>Tirana, seen globally.</h2>
-
-        <div className="global-preview-grid">
-          {globalCards.map((card) => (
-            <article className="global-card" key={card.title}>
-              <span>{card.icon}</span>
-              <h3>{card.title}</h3>
-              <p>{card.text}</p>
-            </article>
           ))}
         </div>
       </section>

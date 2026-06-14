@@ -233,8 +233,8 @@ function Ask() {
         err.status === 429
           ? "You’re sending messages a bit too fast — wait a moment and try again."
           : err.status === 422
-          ? "That question is too long — please shorten it (max 1000 characters)."
-          : "Sorry — I couldn’t reach the server. Please try again in a moment.";
+            ? "That question is too long — please shorten it (max 1000 characters)."
+            : "Sorry — I couldn’t reach the server. Please try again in a moment.";
       patchAssistant((m) => ({ text: m.text || friendly }));
     } finally {
       setIsTyping(false);
@@ -266,8 +266,7 @@ function Ask() {
     <main className="ask-page">
       <section className="ask-intro">
         <div className="ask-decor ask-decor-left">
-          <span className="ask-logo-icon hero-corner-logo"></span>
-          <span className="decor-leaf decor-leaf-one"></span>
+          <span className="tt-logo-icon hero-corner-logo" aria-hidden="true"></span>          <span className="decor-leaf decor-leaf-one"></span>
           <span className="decor-leaf decor-leaf-two"></span>
         </div>
 
@@ -294,8 +293,7 @@ function Ask() {
       <section className="assistant-shell">
         <aside className="assistant-side">
           <div className="side-logo">
-            <span className="ask-logo-icon"></span>
-
+            <span className="tt-logo-icon" aria-hidden="true"></span>
             <div>
               <h2>Ask Tirana</h2>
               <p>Your AI local assistant</p>
@@ -365,7 +363,7 @@ function Ask() {
               >
                 {message.type === "assistant" && (
                   <div className="assistant-avatar">
-                    <span className="ask-logo-icon"></span>
+                    <span className="tt-logo-icon sm" aria-hidden="true"></span>
                   </div>
                 )}
 
@@ -447,7 +445,7 @@ function Ask() {
             {isTyping && (
               <div className="message-row">
                 <div className="assistant-avatar">
-                  <span className="ask-logo-icon"></span>
+                  <span className="tt-logo-icon sm" aria-hidden="true"></span>
                 </div>
 
                 <div className="typing-bubble">

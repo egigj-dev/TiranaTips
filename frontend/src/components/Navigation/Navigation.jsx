@@ -1,7 +1,7 @@
 import { NavLink, Link } from "react-router-dom";
 import "./navigation.css";
 
-function Navigation() {
+function Navigation({ isAuthenticated, onLogout, displayName }) {
   const navLinks = [
     { label: "Today", path: "/" },
     { label: "Explore", path: "/explore" },
@@ -15,7 +15,6 @@ function Navigation() {
       <div className="nav-container">
         <Link to="/" className="nav-logo" aria-label="TiranaTips home">
           <span className="nav-logo-icon"></span>
-
           <span className="nav-logo-text">
             Tirana<span>Tips</span>
           </span>
@@ -35,10 +34,19 @@ function Navigation() {
           ))}
         </nav>
 
-        <Link to="/" className="nav-action">
-          <span className="nav-action-icon">▣</span>
-          Plan my day
-        </Link>
+        {isAuthenticated ? (
+          <div className="nav-auth">
+            <span className="nav-username">{displayName}</span>
+            <button className="nav-logout-btn" onClick={onLogout}>
+              Logout
+            </button>
+          </div>
+        ) : (
+          <Link to="/" className="nav-action">
+            <span className="nav-action-icon">▣</span>
+            Plan my day
+          </Link>
+        )}
       </div>
     </header>
   );

@@ -409,3 +409,36 @@
   border-color: rgba(185, 74, 72, 0.65);
   box-shadow: 0 0 0 4px rgba(185, 74, 72, 0.08);
 }
+
+/* Password field with eye toggle */
+.password-field {
+  position: relative;
+}
+
+.password-field input {
+  padding-right: 46px;
+}
+
+.password-toggle {
+  position: absolute;
+  right: 14px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: 0;
+  background: transparent;
+  color: #9b9a8d;
+  cursor: pointer;
+  padding: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.2s ease;
+}
+
+.password-toggle:hover {
+  color: #1f5a2e;
+}
+
+.password-toggle svg {
+  display: block;
+}
