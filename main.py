@@ -1573,6 +1573,68 @@ def search_place(request: Request, req: PlaceSearchRequest):
     return {"found": True, "place": place}
 
 
+# =============================================================================
+# Simple file-based authentication
+# =============================================================================
+# Users are stored in users.json (SHA-256 hashed passwords).
+# On successful login the server returns a session token (random UUID).
+# The token is stored server-side in _sessions and client-side in localStorage.
+# Every protected endpoint checks for a valid session token.
+
+import secrets
+
+_USERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.json")
+_sessions: dict[str, dict] = {}  # token -> {"username", "display_name", "created"}
+
+
+def _load_users_list() -> list:
+    with open(_USERS_FILE, "r") as f:
+        return json.load(f)
+
+
+def _verify_credentials(username: str, password: str) -> dict | None:
+    pw_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
+    for u in _load_users_list():
+        if u["username"] == username and u["password_hash"] == pw_hash:
+            return {"username": u["username"], "display_name": u.get("display_name", u["username"])}
+    return None
+
+
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+@app.post("/auth/login")
+def auth_login(req: LoginRequest):
+    user = _verify_credentials(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    token = secrets.token_urlsafe(32)
+    _sessions[token] = {
+        "username": user["username"],
+        "display_name": user["display_name"],
+        "created": datetime.utcnow().isoformat(),
+    }
+    return {"authenticated": True, "token": token, "display_name": user["display_name"]}
+
+
+@app.post("/auth/logout")
+def auth_logout(req: Request):
+    token = req.headers.get("X-Session-Token", "")
+    _sessions.pop(token, None)
+    return {"authenticated": False}
+
+
+@app.get("/auth/session")
+def auth_session(req: Request):
+    token = req.headers.get("X-Session-Token", "")
+    session = _sessions.get(token)
+    if not session:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    return {"authenticated": True, "username": session["username"], "display_name": session["display_name"]}
+
+
 def _is_onboarded(prefs: dict) -> bool:
     """
     A user counts as "onboarded" once they've made at least one meaningful

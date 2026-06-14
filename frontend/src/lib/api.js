@@ -185,3 +185,73 @@ export const searchPlace = (name) =>
 // ---------------------------------------------------------------------------
 
 export const getCityNotes = () => request("/city/notes");
+
+// ---------------------------------------------------------------------------
+// Authentication helpers
+// ---------------------------------------------------------------------------
+
+const TOKEN_KEY = "tiranatips_session_token";
+
+export function getSessionToken() {
+  return localStorage.getItem(TOKEN_KEY);
+}
+
+function setSessionToken(token) {
+  if (token) {
+    localStorage.setItem(TOKEN_KEY, token);
+  } else {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+}
+
+/** Check with the server whether the current session is valid. */
+export async function checkSession() {
+  const token = getSessionToken();
+  if (!token) return false;
+  try {
+    const res = await fetch(`${API_BASE}/auth/session`, {
+      headers: { "X-Session-Token": token },
+    });
+    if (!res.ok) {
+      setSessionToken(null);
+      return false;
+    }
+    const data = await res.json();
+    return data.authenticated === true;
+  } catch {
+    return false;
+  }
+}
+
+/** Log in: POST /auth/login, store token on success. */
+export async function login(username, password) {
+  const res = await fetch(`${API_BASE}/auth/login`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ username, password }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => "");
+    throw new Error(body || "Invalid username or password.");
+  }
+  const data = await res.json();
+  setSessionToken(data.token);
+  return data;
+}
+
+/** Log out: POST /auth/logout, clear token. */
+export async function logout() {
+  const token = getSessionToken();
+  try {
+    if (token) {
+      await fetch(`${API_BASE}/auth/logout`, {
+        method: "POST",
+        headers: { "X-Session-Token": token },
+      });
+    }
+  } catch {
+    // server unreachable — just clear locally
+  } finally {
+    setSessionToken(null);
+  }
+}
