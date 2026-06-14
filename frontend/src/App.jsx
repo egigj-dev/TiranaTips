@@ -11,32 +11,27 @@ import { checkSession, logout as apiLogout } from "./lib/api";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(null); // null = checking
-  const [showLogin, setShowLogin] = useState(false);
-  const [userDisplayName, setUserDisplayName] = useState("");
+  const [displayName, setDisplayName] = useState("");
 
   // On mount, check if there's a valid session
   useEffect(() => {
     checkSession().then((valid) => {
       setIsAuthenticated(valid);
-      if (!valid) {
-        setShowLogin(true);
-      }
     });
   }, []);
 
-  const handleLogin = () => {
+  const handleLogin = (name) => {
+    setDisplayName(name);
     setIsAuthenticated(true);
-    setShowLogin(false);
   };
 
   const handleLogout = async () => {
     await apiLogout();
     setIsAuthenticated(false);
-    setShowLogin(true);
-    setUserDisplayName("");
+    setDisplayName("");
   };
 
-  // While checking session, show nothing (or a loading spinner)
+  // While checking session, show a loading state
   if (isAuthenticated === null) {
     return <div className="app-loading">Loading...</div>;
   }
@@ -58,7 +53,7 @@ function App() {
       <Navigation
         isAuthenticated={true}
         onLogout={handleLogout}
-        displayName={userDisplayName}
+        displayName={displayName}
       />
 
       <Routes>

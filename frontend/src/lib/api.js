@@ -8,6 +8,9 @@
 // so a cross-origin dev setup (Vite on :5173 → API on :8000) also works.
 const API_BASE = import.meta.env.VITE_API_BASE ?? "";
 
+// Log the resolved API base on load so the developer can verify routing
+console.log("[api] API_BASE =", JSON.stringify(API_BASE), "— all fetch requests will go to:", API_BASE || "(same origin, relies on Vite proxy)");
+
 // ---------------------------------------------------------------------------
 // Identity — the backend is anonymous-by-design: user_id is "whatever UUID
 // the client generated and kept in localStorage" (see main.py preferences
@@ -187,71 +190,8 @@ export const searchPlace = (name) =>
 export const getCityNotes = () => request("/city/notes");
 
 // ---------------------------------------------------------------------------
-// Authentication helpers
+// Authentication — pure-frontend, no backend calls.
+// Re-exported from ./auth.js which validates against local users.json.
 // ---------------------------------------------------------------------------
 
-const TOKEN_KEY = "tiranatips_session_token";
-
-export function getSessionToken() {
-  return localStorage.getItem(TOKEN_KEY);
-}
-
-function setSessionToken(token) {
-  if (token) {
-    localStorage.setItem(TOKEN_KEY, token);
-  } else {
-    localStorage.removeItem(TOKEN_KEY);
-  }
-}
-
-/** Check with the server whether the current session is valid. */
-export async function checkSession() {
-  const token = getSessionToken();
-  if (!token) return false;
-  try {
-    const res = await fetch(`${API_BASE}/auth/session`, {
-      headers: { "X-Session-Token": token },
-    });
-    if (!res.ok) {
-      setSessionToken(null);
-      return false;
-    }
-    const data = await res.json();
-    return data.authenticated === true;
-  } catch {
-    return false;
-  }
-}
-
-/** Log in: POST /auth/login, store token on success. */
-export async function login(username, password) {
-  const res = await fetch(`${API_BASE}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ username, password }),
-  });
-  if (!res.ok) {
-    const body = await res.text().catch(() => "");
-    throw new Error(body || "Invalid username or password.");
-  }
-  const data = await res.json();
-  setSessionToken(data.token);
-  return data;
-}
-
-/** Log out: POST /auth/logout, clear token. */
-export async function logout() {
-  const token = getSessionToken();
-  try {
-    if (token) {
-      await fetch(`${API_BASE}/auth/logout`, {
-        method: "POST",
-        headers: { "X-Session-Token": token },
-      });
-    }
-  } catch {
-    // server unreachable — just clear locally
-  } finally {
-    setSessionToken(null);
-  }
-}
+export { login, logout, checkSession, getSessionToken } from "./auth.js";
