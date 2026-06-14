@@ -41,9 +41,14 @@ export const getSessionId = () => getOrCreateId("tiranatips_session_id");
 
 /** Start a fresh chat thread (history is keyed by session_id). */
 export function newSession() {
-  const id = crypto.randomUUID();
+  const id = generateId();
   localStorage.setItem("tiranatips_session_id", id);
   return id;
+}
+
+/** Switch the active thread to an existing session. */
+export function setSessionId(id) {
+  localStorage.setItem("tiranatips_session_id", id);
 }
 
 // ---------------------------------------------------------------------------
@@ -142,6 +147,26 @@ export async function streamChat(
 /** → {messages: [{role: "user"|"assistant", content: string, ...}]} */
 export const getHistory = () => request(`/history/${getSessionId()}`);
 
+// ---------------------------------------------------------------------------
+// Sessions — list past chat threads, rename, delete. The active thread is
+// whatever getSessionId() returns; the sidebar switches it via setSessionId.
+// Backend returns { sessions: [{ session_id, display_name }] }, newest first.
+// ---------------------------------------------------------------------------
+
+export const getSessions = () => request("/sessions");
+
+export const getHistoryFor = (sessionId) =>
+  request(`/history/${sessionId}`);
+
+export const renameSession = (sessionId, displayName) =>
+  request(`/sessions/${sessionId}/rename`, {
+    method: "PATCH",
+    body: JSON.stringify({ display_name: displayName }),
+  });
+
+export const deleteSession = (sessionId) =>
+  request(`/sessions/${sessionId}`, { method: "DELETE" });
+
 /** rating: 1 (thumbs up) | -1 (thumbs down). Question = the USER question
  *  that produced the rated answer (backend evicts its cache entries on -1). */
 export const sendFeedback = (question, rating) =>
@@ -178,6 +203,28 @@ export const deletePreferences = () =>
 
 export const searchPlace = (name) =>
   request("/places/search", { method: "POST", body: JSON.stringify({ name }) });
+
+// Multi-result search for the Explore page. Categories are preset queries.
+// Returns { count, places: [{ name, rating, reviews, address, type, price,
+// open_now, maps_url, gps, ... }] }.
+export const explorePlaces = (query, limit = 12) =>
+  request("/places/explore", {
+    method: "POST",
+    body: JSON.stringify({ query, limit }),
+  });
+
+// Filtered semantic search over the OWNED OSM index (vector match + payload
+// filter on category/neighborhood/max_price). Returns {count, places:[{slug,
+// name, category, neighborhood, price_tier, interest_tags, gps}]}. Note these
+// rows have NO rating/open_now/address — OSM doesn't carry them; that's the
+// live-Google enrichment layer (a later increment). Use for category/filter
+// browsing over the whole dataset; use explorePlaces() for free-text + rich
+// Google cards.
+export const browsePlaces = (params) =>
+  request("/places/browse", {
+    method: "POST",
+    body: JSON.stringify(params),
+  });
 // ---------------------------------------------------------------------------
 // City notes — cached live data for the Home "Smart Local Notes" cards.
 // Shape: { weather, exchange, departures, arrivals } — any section can be
@@ -185,3 +232,12 @@ export const searchPlace = (name) =>
 // ---------------------------------------------------------------------------
 
 export const getCityNotes = () => request("/city/notes");
+
+// Upcoming events for the Explore page — from the same ingested events table
+// the chat uses. {count, events:[{title, description, category, start_date,
+// end_date, venue, image_url, ticket_url, source_url}]}.
+export const getEvents = (days = 30, category = null) => {
+  const qs = new URLSearchParams({ days });
+  if (category) qs.set("category", category);
+  return request(`/events?${qs.toString()}`);
+};

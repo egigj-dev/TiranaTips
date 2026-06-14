@@ -74,17 +74,46 @@ def _fetch_weather() -> dict:
             "latitude": TIRANA_LAT,
             "longitude": TIRANA_LON,
             "current": "temperature_2m,weather_code",
+            # Next 12h of rain probability → a useful "rain expected ~3pm" line.
+            "hourly": "precipitation_probability,weather_code",
+            "forecast_hours": 12,
             "timezone": "Europe/Tirane",
         },
         timeout=10,
     )
     r.raise_for_status()
-    cur = r.json()["current"]
+    data = r.json()
+    cur = data["current"]
     return {
         "temp_c": round(cur["temperature_2m"]),
         "label": _WMO.get(int(cur["weather_code"]), "—"),
+        "forecast": _forecast_line(data.get("hourly", {})),
         "fetched_at": datetime.utcnow().isoformat(),
     }
+
+
+def _forecast_line(hourly: dict) -> str:
+    """A short, informative outlook from the next 12 hours. Prefers the first
+    hour with a meaningful rain chance ("Rain likely around 3 PM"); otherwise
+    summarizes the prevailing sky ("Clear through the evening")."""
+    times = hourly.get("time", [])
+    probs = hourly.get("precipitation_probability", [])
+    codes = hourly.get("weather_code", [])
+    if not times:
+        return ""
+
+    # First hour with rain probability >= 50% within the window.
+    for t, p in zip(times, probs):
+        if p is not None and p >= 50:
+            hour = datetime.fromisoformat(t).strftime("%-I %p")
+            return f"Rain likely around {hour}"
+
+    # No rain — describe the dominant condition over the window.
+    labels = [_WMO.get(int(c), "") for c in codes if c is not None]
+    if labels:
+        dominant = max(set(labels), key=labels.count)
+        return f"{dominant} for the next few hours"
+    return ""
 
 
 # ---------------------------------------------------------------------------

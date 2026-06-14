@@ -1,11 +1,20 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect } from "react";
 import "./ask.css";
 
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
 import L from "leaflet";
 
-import { streamChat, getHistory, sendFeedback } from "../../lib/api";
+import {
+  streamChat,
+  getHistory,
+  sendFeedback,
+  getSessions,
+  newSession,
+  setSessionId,
+  getSessionId,
+  deleteSession,
+} from "../../lib/api";
 
 const mapMarkerIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -33,13 +42,12 @@ function Ask() {
   const [toastMessage, setToastMessage] = useState("");
 
   const [messages, setMessages] = useState([WELCOME_MESSAGE]);
+  const [sessions, setSessions] = useState([]);
+  const [activeSession, setActiveSession] = useState(getSessionId());
   const [isTyping, setIsTyping] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState({}); // {messageId: 1|-1}
 
-  // Guard against double-fetching history under React 18 StrictMode
-  // (effects run twice in dev).
-  const historyLoaded = useRef(false);
 
   const mostAsked = [
     "Good coffee near Blloku?",
@@ -50,16 +58,18 @@ function Ask() {
   ];
 
   // -------------------------------------------------------------------------
-  // Restore this session's history on mount so a page refresh doesn't wipe
-  // the conversation (the backend has persisted it all along).
+  // Restore the active session's history. Re-runs when the user switches
+  // sessions from the sidebar (activeSession change), not just on mount.
   // -------------------------------------------------------------------------
   useEffect(() => {
-    if (historyLoaded.current) return;
-    historyLoaded.current = true;
-
+    let cancelled = false;
     getHistory()
       .then(({ messages: past }) => {
-        if (!past || past.length === 0) return;
+        if (cancelled) return;
+        if (!past || past.length === 0) {
+          setMessages([WELCOME_MESSAGE]);
+          return;
+        }
         const restored = past.map((m, i) => ({
           id: `h-${i}`,
           type: m.role === "user" ? "user" : "assistant",
@@ -75,8 +85,42 @@ function Ask() {
       })
       .catch(() => {
         // History is a nicety — a fresh chat is a fine fallback.
+        if (!cancelled) setMessages([WELCOME_MESSAGE]);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeSession]);
+
+  // Past chat threads for the sidebar. refreshSessions() is called after any
+  // mutation (new message persisted, rename, delete) to keep the list current.
+  const refreshSessions = () =>
+    getSessions()
+      .then(({ sessions: list }) => setSessions(list || []))
+      .catch(() => {});
+
+  useEffect(() => {
+    refreshSessions();
   }, []);
+
+  const openSession = (sessionId) => {
+    if (sessionId === activeSession) return;
+    setSessionId(sessionId);
+    setActiveSession(sessionId); // triggers the history effect above
+  };
+
+  const startNewChat = () => {
+    const id = newSession();
+    setActiveSession(id);
+    setMessages([WELCOME_MESSAGE]);
+  };
+
+  const removeSession = async (sessionId, event) => {
+    event.stopPropagation(); // don't also trigger openSession on the row
+    await deleteSession(sessionId).catch(() => {});
+    if (sessionId === activeSession) startNewChat();
+    refreshSessions();
+  };
 
   const handleSavePlace = (place) => {
     setSavedPlaceIds((prev) => {
@@ -195,6 +239,9 @@ function Ask() {
     } finally {
       setIsTyping(false);
       setIsStreaming(false);
+      // A first message in a new thread creates the session (and its
+      // auto-generated name) server-side — refresh so it shows in the sidebar.
+      refreshSessions();
     }
   };
 
@@ -254,6 +301,40 @@ function Ask() {
               <p>Your AI local assistant</p>
             </div>
           </div>
+
+          <button
+            type="button"
+            className="new-chat-btn"
+            onClick={startNewChat}
+          >
+            + New chat
+          </button>
+
+          {sessions.length > 0 && (
+            <div className="session-list">
+              <h3>Your chats</h3>
+              {sessions.map((s) => (
+                <div
+                  key={s.session_id}
+                  className={
+                    "session-row" +
+                    (s.session_id === activeSession ? " session-active" : "")
+                  }
+                  onClick={() => openSession(s.session_id)}
+                >
+                  <span className="session-name">{s.display_name}</span>
+                  <button
+                    type="button"
+                    className="session-delete"
+                    aria-label="Delete chat"
+                    onClick={(e) => removeSession(s.session_id, e)}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
 
           <div className="most-asked">
             <h3>Most asked</h3>

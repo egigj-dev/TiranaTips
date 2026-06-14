@@ -6,6 +6,7 @@ import Navigation from "./components/Navigation/Navigation";
 import Footer from "./components/Footer/Footer";
 import Ask from "./components/Ask/Ask";
 import ForYou from "./components/ForYou/ForYou";
+import Explore from "./components/Explore/Explore";
 
 
 function App() {
@@ -17,6 +18,7 @@ function App() {
         <Route path="/" element={<Home />} />
         <Route path="/ask" element={<Ask />} />
         <Route path="/foryou" element={<ForYou />} />
+        <Route path="/explore" element={<Explore />} />
 
       </Routes>
 

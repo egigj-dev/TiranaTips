@@ -32,14 +32,15 @@ from database import (save_message, get_history, save_summary, get_summary,
                        rename_session, get_session_name,
                        save_feedback, get_feedback_stats,
                        get_user_preferences, save_user_preferences,
-                       delete_user_preferences, query_events, DB_PATH)
+                       delete_user_preferences, query_events, prune_events, DB_PATH)
 import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from qdrant_client.models import (
-    SparseVectorParams, SparseIndexParams, PointStruct
+    SparseVectorParams, SparseIndexParams, PointStruct,
+    Filter, FieldCondition, MatchValue, Range,
 )
 
 load_dotenv()
@@ -52,6 +53,7 @@ TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback d
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")  # Places API (New); demo key works for testing
 
 COLLECTION_NAME  = "wiki_banking"
+PLACES_COLLECTION = "places"   # OSM places vector collection (osm_places_index.py)
 RERANK_MODEL     = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 FETCH_K          = 10   # kandidatë nga Qdrant para reranking-ut
 FINAL_K          = 3    # rezultate finale që i dërgohen LLM-it
@@ -447,6 +449,19 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
         next_run_time=datetime.utcnow(),
         misfire_grace_time=120,
+    )
+    # Places (OSM POIs) move slowly — weekly is plenty. Runs Sunday 04:00 UTC
+    # (quiet hour). NOT run at boot: it's a heavy 3-step job (Overpass fetch +
+    # 1600 embeddings) and would slow every restart; the data persists in
+    # SQLite/Qdrant across restarts anyway, so there's nothing to warm.
+    scheduler.add_job(
+        _refresh_places_job,
+        "cron",
+        day_of_week="sun",
+        hour=4,
+        id="places_refresh",
+        replace_existing=True,
+        misfire_grace_time=3600,
     )
     scheduler.start()
     print(f"Scheduler started — ingestion cdo {INGEST_INTERVAL_HOURS}h.")
@@ -1345,8 +1360,9 @@ def rename_session_endpoint(session_id: str, req: RenameRequest):
 def delete_session(session_id: str):
     import sqlite3 as _sq
     conn = _sq.connect(DB_PATH)
-    conn.execute("DELETE FROM messages  WHERE session_id=?", (session_id,))
-    conn.execute("DELETE FROM summaries WHERE session_id=?", (session_id,))
+    conn.execute("DELETE FROM messages      WHERE session_id=?", (session_id,))
+    conn.execute("DELETE FROM summaries     WHERE session_id=?", (session_id,))
+    conn.execute("DELETE FROM session_names WHERE session_id=?", (session_id,))
     conn.commit(); conn.close()
     return {"deleted": session_id}
 
@@ -1354,6 +1370,28 @@ def delete_session(session_id: str):
 async def trigger_ingestion(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_ingestion_job)
     return {"status": "Ingestion filloi ne background — kontrolloni logjet e serverit."}
+
+
+def _refresh_places_job():
+    """OSM ingest → enrich (neighborhood/price) → Qdrant reindex, as one task.
+    Imported lazily so main.py import stays light and a missing module can't
+    break app startup. The enrich step MUST run between ingest and index —
+    re-ingestion resets neighborhood/price_tier to NULL, and only enrich
+    refills them before they're indexed into the payload."""
+    try:
+        import osm_places, places_enrich, osm_places_index
+        ingest_summary = osm_places.ingest()
+        enrich_summary = places_enrich.enrich()
+        index_summary = osm_places_index.reindex()
+        print(f"[Places] ingest={ingest_summary} enrich={enrich_summary} index={index_summary}")
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Places] refresh failed: {exc}")
+
+
+@app.post("/admin/places/refresh")
+async def trigger_places_refresh(background_tasks: BackgroundTasks):
+    background_tasks.add_task(_refresh_places_job)
+    return {"status": "Places refresh started in background — check server logs."}
 
 @app.post("/feedback", status_code=201)
 @limiter.limit("60/minute")
@@ -1497,51 +1535,9 @@ _PRICE_LEVEL = {
 class PlaceSearchRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=200)
 
-@app.post("/places/search")
-@limiter.limit("30/minute")
-def search_place(request: Request, req: PlaceSearchRequest):
-    """
-    Search Places API (New) for a place by name, scoped to Tirana, Albania.
-    Returns structured data for the place card panel.
-    Requires GOOGLE_MAPS_API_KEY in the environment.
-    """
-    if not GOOGLE_MAPS_API_KEY:
-        raise HTTPException(status_code=503, detail="Place search not configured (GOOGLE_MAPS_API_KEY missing)")
-
-    query   = f"{req.name} Tirana Albania"
-    payload = {"textQuery": query, "languageCode": "en"}
-    headers = {
-        "Content-Type":     "application/json",
-        "X-Goog-Api-Key":   GOOGLE_MAPS_API_KEY,
-        "X-Goog-FieldMask": _PLACES_FIELD_MASK,
-    }
-
-    print(f"[PlaceSearch] REQUEST  place_name={req.name!r}  query={query!r}")
-    try:
-        resp = requests.post(PLACES_SEARCH_URL, json=payload, headers=headers, timeout=12)
-        print(f"[PlaceSearch] RESPONSE http_status={resp.status_code}")
-        resp.raise_for_status()
-        data = resp.json()
-    except Exception as e:
-        # Surface the API's error body when present — it explains bad-key / SKU issues.
-        body = getattr(getattr(e, "response", None), "text", "")
-        print(f"[PlaceSearch] Places request failed: {e} {body[:300]}")
-        raise HTTPException(status_code=502, detail=f"Place search failed: {e}")
-
-    results = data.get("places", [])
-    print(f"[PlaceSearch] RESPONSE places_count={len(results)}")
-    if not results:
-        return {"found": False, "place": None}
-
-    # Pick the first result whose name roughly matches; else the top result.
-    name_lower = req.name.lower()
-    place_raw = next(
-        (r for r in results
-         if name_lower in (r.get("displayName", {}).get("text", "")).lower()),
-        results[0],
-    )
-
-    # Opening hours → [{day, hours}]. weekdayDescriptions look like "Monday: 9 AM – 5 PM".
+def _map_place(place_raw: dict, fallback_query: str = "") -> dict:
+    """Google Places (New) result → our flat place dict. Shared by the
+    single-result /places/search (chat card) and multi-result /places/explore."""
     hours_list = []
     for desc in (place_raw.get("regularOpeningHours", {}).get("weekdayDescriptions") or []):
         day, sep, hrs = desc.partition(": ")
@@ -1551,7 +1547,7 @@ def search_place(request: Request, req: PlaceSearchRequest):
     open_now = None if open_now_raw is None else ("Open" if open_now_raw else "Closed")
 
     loc = place_raw.get("location", {})
-    place = {
+    return {
         "name":      place_raw.get("displayName", {}).get("text"),
         "rating":    place_raw.get("rating"),
         "reviews":   place_raw.get("userRatingCount"),
@@ -1564,13 +1560,243 @@ def search_place(request: Request, req: PlaceSearchRequest):
         "price":     _PRICE_LEVEL.get(place_raw.get("priceLevel")),
         "thumbnail": None,  # photos require a costlier field tier + leak the key client-side; skip
         "maps_url":  place_raw.get("googleMapsUri")
-                     or f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(query)}",
+                     or f"https://www.google.com/maps/search/?api=1&query={requests.utils.quote(fallback_query)}",
         "place_id":  place_raw.get("id"),
         "gps":       ({"latitude": loc.get("latitude"), "longitude": loc.get("longitude")}
                       if loc else None),
     }
 
-    return {"found": True, "place": place}
+
+def _places_text_search(text_query: str) -> list[dict]:
+    """One Places API (New) searchText call, Tirana-scoped. Returns raw results.
+    Shared transport for both place endpoints — single place to fix bad-key /
+    SKU issues, timeouts, and the field mask."""
+    if not GOOGLE_MAPS_API_KEY:
+        raise HTTPException(status_code=503, detail="Place search not configured (GOOGLE_MAPS_API_KEY missing)")
+    payload = {"textQuery": f"{text_query} Tirana Albania", "languageCode": "en"}
+    headers = {
+        "Content-Type":     "application/json",
+        "X-Goog-Api-Key":   GOOGLE_MAPS_API_KEY,
+        "X-Goog-FieldMask": _PLACES_FIELD_MASK,
+    }
+    try:
+        resp = requests.post(PLACES_SEARCH_URL, json=payload, headers=headers, timeout=12)
+        resp.raise_for_status()
+        return resp.json().get("places", [])
+    except Exception as e:
+        body = getattr(getattr(e, "response", None), "text", "")
+        print(f"[Places] request failed: {e} {body[:300]}")
+        raise HTTPException(status_code=502, detail=f"Place search failed: {e}")
+
+
+# Enrichment: OSM gives us identity + neighborhood; Google gives the live
+# fields OSM lacks (rating, open-now, current price). We look a place up by
+# name (Tirana-scoped) and merge. Cached PER SLUG with a long TTL so a place is
+# billed at most once per window no matter how many Explore views hit it —
+# ratings/hours change slowly, so 6h is plenty and keeps Google cost minimal.
+_ENRICH_TTL = 6 * 3600
+_enrich_cache: dict[str, dict] = {}   # slug -> {"data": {...}, "ts": float}
+
+
+def _enrich_place(place: dict) -> dict:
+    """Merge Google's live fields onto a browse result. Never raises — if the
+    lookup fails or the key is missing, the un-enriched place passes through so
+    the page still renders (degraded, not broken)."""
+    slug = place.get("slug")
+    if not slug:
+        return place
+
+    cached = _enrich_cache.get(slug)
+    if cached and (time.time() - cached["ts"]) < _ENRICH_TTL:
+        return {**place, **cached["data"]}
+
+    enrich_fields: dict = {}
+    try:
+        results = _places_text_search(place["name"])
+        if results:
+            # Prefer the candidate closest to the OSM coords — name matches can
+            # be ambiguous ("Bar Jul" appears thrice), GPS disambiguates.
+            gps = place.get("gps") or {}
+            lat, lon = gps.get("latitude"), gps.get("longitude")
+            def _dist(r):
+                loc = r.get("location", {})
+                if lat is None or loc.get("latitude") is None:
+                    return 9e9
+                return (loc["latitude"] - lat) ** 2 + (loc["longitude"] - lon) ** 2
+            best = min(results, key=_dist) if lat is not None else results[0]
+            mapped = _map_place(best, place["name"])
+            # Only the fields OSM didn't have — don't let Google override our
+            # canonical name/neighborhood/slug.
+            enrich_fields = {
+                "rating":   mapped.get("rating"),
+                "reviews":  mapped.get("reviews"),
+                "open_now": mapped.get("open_now"),
+                "address":  mapped.get("address"),
+                "price":    mapped.get("price"),
+                "maps_url": mapped.get("maps_url"),
+            }
+    except Exception as exc:  # noqa: BLE001
+        print(f"[Enrich] {slug} failed (non-fatal): {exc}")
+
+    _enrich_cache[slug] = {"data": enrich_fields, "ts": time.time()}
+    return {**place, **enrich_fields}
+
+
+@app.post("/places/search")
+@limiter.limit("30/minute")
+def search_place(request: Request, req: PlaceSearchRequest):
+    """
+    Search Places API (New) for a place by name, scoped to Tirana, Albania.
+    Returns structured data for the place card panel.
+    Requires GOOGLE_MAPS_API_KEY in the environment.
+    """
+    query   = f"{req.name} Tirana Albania"
+    results = _places_text_search(req.name)
+    print(f"[PlaceSearch] place_name={req.name!r} places_count={len(results)}")
+    if not results:
+        return {"found": False, "place": None}
+
+    # Pick the first result whose name roughly matches; else the top result.
+    name_lower = req.name.lower()
+    place_raw = next(
+        (r for r in results
+         if name_lower in (r.get("displayName", {}).get("text", "")).lower()),
+        results[0],
+    )
+    return {"found": True, "place": _map_place(place_raw, query)}
+
+
+class PlaceExploreRequest(BaseModel):
+    query: str = Field(..., min_length=1, max_length=200)
+    limit: int = Field(12, ge=1, le=20)
+
+
+@app.post("/places/explore")
+@limiter.limit("30/minute")
+def explore_places(request: Request, req: PlaceExploreRequest):
+    """Multi-result place search for the Explore page. Same Google call as
+    /places/search, but returns the whole result list mapped, not just one.
+    Categories are just preset queries the frontend sends here."""
+    query   = f"{req.query} Tirana Albania"
+    results = _places_text_search(req.query)
+    print(f"[PlaceExplore] query={req.query!r} places_count={len(results)}")
+    places = [_map_place(r, query) for r in results[:req.limit]]
+    return {"count": len(places), "places": places}
+
+
+class PlaceBrowseRequest(BaseModel):
+    # Free-text intent ("rooftop bar", "quiet cafe"). Optional: an empty query
+    # with only filters returns category/neighborhood matches ranked by a
+    # neutral query, which is fine for "show me all bars in Blloku".
+    query:        str | None = Field(None, max_length=200)
+    category:     str | None = Field(None, max_length=40)
+    neighborhood: str | None = Field(None, max_length=80)
+    max_price:    int | None = Field(None, ge=1, le=4)
+    limit:        int = Field(20, ge=1, le=50)
+    # Merge live Google fields (rating, open-now, price) onto results so cards
+    # match the rich Google-search path. Cached per slug, so cheap on repeat
+    # views. Off → raw OSM rows (faster, zero Google cost).
+    enrich:       bool = Field(True)
+
+
+@app.post("/places/browse")
+@limiter.limit("60/minute")
+def browse_places(request: Request, req: PlaceBrowseRequest):
+    """Filtered semantic search over the OWNED OSM places collection (built by
+    osm_places_index.py). This is the "cheap eats in Blloku" unlock: the vector
+    side matches meaning, the payload Filter narrows by our structured fields —
+    over the WHOLE indexed dataset, not one Google result page.
+
+    Falls back gracefully if the collection isn't built yet (returns empty with
+    a note) so the Explore page degrades to its live-Google path."""
+    # Build the payload filter from whichever structured fields were given.
+    must = []
+    if req.category:
+        must.append(FieldCondition(key="category", match=MatchValue(value=req.category.lower())))
+    if req.neighborhood:
+        must.append(FieldCondition(key="neighborhood", match=MatchValue(value=req.neighborhood)))
+    if req.max_price is not None:
+        # price_tier <= max_price; NULL tiers are excluded by Range (unknown
+        # price can't be asserted cheap), which is the safe default.
+        must.append(FieldCondition(key="price_tier", range=Range(lte=req.max_price)))
+    qfilter = Filter(must=must) if must else None
+
+    # Empty query → a neutral term so the vector search still returns the
+    # filtered set rather than nothing; the filter does the real work then.
+    text = (req.query or req.category or "place").strip()
+    dense_vec = embeddings.embed_query(text)
+    sparse_emb = list(sparse_model.query_embed(text))[0]
+    sparse_vec = SparseVector(indices=sparse_emb.indices.tolist(),
+                              values=sparse_emb.values.tolist())
+
+    try:
+        dense_results = qdrant.query_points(
+            collection_name=PLACES_COLLECTION, query=dense_vec, using="dense",
+            query_filter=qfilter, limit=req.limit, with_payload=True)
+        sparse_results = qdrant.query_points(
+            collection_name=PLACES_COLLECTION, query=sparse_vec, using="sparse",
+            query_filter=qfilter, limit=req.limit, with_payload=True)
+    except Exception as exc:  # noqa: BLE001 — collection missing / Qdrant down
+        print(f"[PlaceBrowse] query failed: {exc}")
+        return {"count": 0, "places": [], "note": "places index unavailable"}
+
+    fused = _rrf(dense_results, sparse_results)[:req.limit]
+    places = [
+        {
+            "slug":         h.payload.get("slug"),
+            "name":         h.payload.get("name"),
+            "category":     h.payload.get("category"),
+            "neighborhood": h.payload.get("neighborhood"),
+            "price_tier":   h.payload.get("price_tier"),
+            "interest_tags": h.payload.get("interest_tags") or [],
+            "gps": ({"latitude": h.payload.get("lat"), "longitude": h.payload.get("lon")}
+                    if h.payload.get("lat") is not None else None),
+        }
+        for h in fused
+    ]
+
+    # Live enrichment: merge Google's rating/open-now/price so browse cards
+    # look as rich as the Google-search path. Per-slug cache keeps this cheap
+    # on repeat views; failures pass through un-enriched, never blocking.
+    # Run concurrently — serial lookups made a cold-cache page take ~24×
+    # one request's latency; a thread pool collapses that to roughly 1×.
+    if req.enrich and places:
+        from concurrent.futures import ThreadPoolExecutor
+        with ThreadPoolExecutor(max_workers=8) as pool:
+            places = list(pool.map(_enrich_place, places))
+
+    return {"count": len(places), "places": places}
+
+
+@app.get("/events")
+@limiter.limit("60/minute")
+def list_events(request: Request, days: int = 30, category: str | None = None,
+                limit: int = 50):
+    """Upcoming events for the Explore page — canonical (deduped) events from
+    today through `days` ahead, soonest first. Reads the same table the chat's
+    event answers use, so the two never disagree."""
+    from datetime import date, timedelta
+    today = date.today().isoformat()
+    until = (date.today() + timedelta(days=days)).isoformat()
+    events = query_events(
+        date_from=today, date_to=until, category=category,
+        canonical_only=True, limit=limit,
+    )
+    out = [
+        {
+            "title":       e["title"],
+            "description": e["description"],
+            "category":    e["category"],
+            "start_date":  e["start_date"],
+            "end_date":    e["end_date"],
+            "venue":       e.get("municipality"),
+            "image_url":   e["image_url"],
+            "ticket_url":  e["ticket_url"],
+            "source_url":  e["source_url"],
+        }
+        for e in events
+    ]
+    return {"count": len(out), "events": out}
 
 
 def _is_onboarded(prefs: dict) -> bool:

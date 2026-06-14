@@ -7,6 +7,3 @@ npm-debug.log*
 .git
 .gitignore
 .DS_Store
-
-# Frontend — built in its own image, not part of the API image
-frontend/

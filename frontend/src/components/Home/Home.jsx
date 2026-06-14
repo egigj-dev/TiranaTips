@@ -24,6 +24,54 @@ import exchangeNoteImg from "../../assets/home/exchange-note.png";
 import airportNoteImg from "../../assets/home/airport-note.png";
 import eventsNoteImg from "../../assets/home/events-note.png";
 
+// Tirana's international recognition — hardcoded editorial content. Slow-
+// changing (a few entries a year), so a committed list is the right amount of
+// engineering; each links to its primary source.
+const ACHIEVEMENTS = [
+  {
+    year: "2018",
+    title: "European Prize for Urban Public Space",
+    blurb:
+      "Skanderbeg Square won Europe's top public-space award, beating 279 candidates from 32 countries for its pedestrian-first redesign.",
+    href: "https://ruby-press.com/skanderbeg-square-by-51n4e-and-anri-sala-wins-european-prize-for-urban-public-space/",
+  },
+  {
+    year: "2022",
+    title: "European Youth Capital",
+    blurb:
+      "Awarded the year-long title by the European Youth Forum, running 100+ events under the slogan \u201cActivate Youth.\u201d",
+    href: "https://www.youthforum.org/news/congratulations-tirana-winner-of-the-european-youth-capital-for-2022",
+  },
+  {
+    year: "2023",
+    title: "The Pyramid Reborn",
+    blurb:
+      "MVRDV transformed the communist-era Pyramid into a public creative hub, home to the TUMO Center for free tech education.",
+    href: "https://www.mvrdv.com/projects/312/the-pyramid-of-tirana",
+  },
+  {
+    year: "2024",
+    title: "Lonely Planet Spotlight",
+    blurb:
+      "Featured in Lonely Planet's global travel guides, introducing Tirana to mainstream travelers as a dynamic European destination.",
+    href: "https://www.lonelyplanet.com/",
+  },
+  {
+    year: "2024",
+    title: "Capital of Innovation Award",
+    blurb:
+      "Honored at the ANGI Awards in Rome for e-governance, smart infrastructure, and grassroots tech support.",
+    href: "https://www.giovaniinnovatori.it/",
+  },
+  {
+    year: "2025",
+    title: "Startup Ecosystem Growth",
+    blurb:
+      "Recorded +40.5% annual growth (StartupBlink), ranking as the 32nd strongest startup environment in Eastern Europe.",
+    href: "https://www.startupblink.com/startup-ecosystem/tirana-al",
+  },
+];
+
 function Home() {
   // Live data for the hero + Smart Local Notes. null until the backend's
   // first refresh completes — cards render "—" placeholders meanwhile.
@@ -248,12 +296,9 @@ function Home() {
                 </span>
               </div>
 
-              <span className="city-status">
-                <i></i>
-                Active city
-              </span>
-
-              <p className="city-note">Tirana is moving today.</p>
+              <p className="city-note">
+                {notes?.weather?.forecast || "Have a great day in Tirana."}
+              </p>
             </div>
           </div>
 
@@ -365,46 +410,27 @@ function Home() {
         </div>
       </section>
 
-      <section className="ask-preview-section">
-        <div className="ask-preview-left">
-          <h2>Ask TiranaTips</h2>
+      <section className="achievements-section">
+        <div className="achievements-intro">
+          <h2>Why the world is talking about Tirana</h2>
+          <p>Recent international recognition for the city.</p>
         </div>
 
-        <div className="chat-preview">
-          <div className="chat-bubble user-bubble">
-            What can I do in Tirana today if I want something calm?
-            <small>10:30 AM</small>
-          </div>
-
-          <div className="chat-answer">
-
-            <div className="chat-bubble ai-bubble">
-              <strong>TiranaTips</strong>
-              Start with coffee near Blloku, take a walk around the lake, then
-              end with dinner somewhere cozy and local.
-              <small>10:31 AM</small>
-            </div>
-          </div>
-        </div>
-
-        <div className="try-asking">
-          <h3>Try asking</h3>
-
-          <a href="/ask">
-            Where should I eat near Blloku? <span>›</span>
-          </a>
-
-          <a href="/ask">
-            What can I do if it rains? <span>›</span>
-          </a>
-
-          <a href="/ask">
-            Is Tirana safe at night? <span>›</span>
-          </a>
-
-          <a href="/ask">
-            Best areas for first-time visitors? <span>›</span>
-          </a>
+        <div className="achievements-grid">
+          {ACHIEVEMENTS.map((a) => (
+            <a
+              className="achievement-card"
+              key={a.year + a.title}
+              href={a.href}
+              target="_blank"
+              rel="noreferrer"
+            >
+              <span className="achievement-year">{a.year}</span>
+              <h3>{a.title}</h3>
+              <p>{a.blurb}</p>
+              <span className="achievement-more">Read more →</span>
+            </a>
+          ))}
         </div>
       </section>
 

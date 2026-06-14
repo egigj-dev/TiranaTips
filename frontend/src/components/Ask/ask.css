@@ -1149,3 +1149,87 @@
   background: #edf3e5;
   border-color: rgba(31, 90, 46, 0.35);
 }
+/* ── Session sidebar (New chat + past threads) ───────────────────────────── */
+.new-chat-btn {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 18px;
+  border-radius: 14px;
+  border: 1px solid rgba(31, 90, 46, 0.42);
+  background: #1f5a2e;
+  color: #fff;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 850;
+  cursor: pointer;
+  transition: background 0.2s ease, transform 0.2s ease;
+}
+
+.new-chat-btn:hover {
+  background: #184925;
+  transform: translateY(-1px);
+}
+
+.session-list {
+  margin-top: 28px;
+}
+
+.session-list h3 {
+  margin: 0 0 14px;
+  color: #102116;
+  font-size: 16px;
+  font-weight: 900;
+}
+
+.session-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 42px;
+  margin-bottom: 8px;
+  padding: 0 6px 0 14px;
+  border-radius: 12px;
+  border: 1px solid rgba(42, 74, 45, 0.1);
+  background: rgba(255, 255, 255, 0.78);
+  cursor: pointer;
+  transition: background 0.2s ease;
+}
+
+.session-row:hover {
+  background: #edf3e5;
+}
+
+.session-active {
+  background: #e3eedd;
+  border-color: rgba(31, 90, 46, 0.42);
+}
+
+.session-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  font-weight: 700;
+  color: #102116;
+}
+
+.session-delete {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: #8a978c;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.session-delete:hover {
+  background: rgba(176, 58, 46, 0.12);
+  color: #b03a2e;
+}

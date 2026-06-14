@@ -95,6 +95,37 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_events_start_date ON events(start_date)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_events_dedup     ON events(dedup_key)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_events_canonical ON events(is_canonical, start_date)")
+
+    # places: canonical, OWNED store of points-of-interest, sourced from OSM
+    # (no ToS storage limits, unlike Google Places). slug is the stable primary
+    # key — it doubles as the Qdrant point ID (foreign key) once places are
+    # indexed for filtered semantic search. category/price_tier/interest_tags
+    # are OUR structured fields layered on top of OSM's raw tags. Google Places
+    # stays a LIVE enrichment layer (ratings, hours) fetched at request time,
+    # never stored here.
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS places (
+            slug          TEXT    PRIMARY KEY,   -- stable ID, also Qdrant point ID
+            osm_type      TEXT    NOT NULL,      -- node | way | relation
+            osm_id        INTEGER NOT NULL,      -- OSM element id (with osm_type = natural key)
+            name          TEXT    NOT NULL,
+            category      TEXT,                  -- our normalized bucket: eat|drink|cafe|see|nightlife|outdoors
+            osm_tags      TEXT,                  -- raw OSM tags as JSON, for re-derivation
+            neighborhood  TEXT,
+            price_tier    INTEGER,               -- 1..4, NULL if unknown
+            interest_tags TEXT,                  -- JSON list, our enrichment
+            lat           REAL,
+            lon           REAL,
+            address       TEXT,
+            website       TEXT,
+            phone         TEXT,
+            updated_at    TEXT    NOT NULL,
+            UNIQUE(osm_type, osm_id)
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_places_category ON places(category)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_places_hood     ON places(neighborhood)")
+
     conn.commit()
     conn.close()
 
@@ -451,6 +482,125 @@ def query_events(
     rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
+
+
+def prune_events(grace_days: int = 3) -> int:
+    """Delete events whose start_date is more than `grace_days` in the past.
+    The grace window keeps just-finished events queryable briefly (a festival
+    that ended yesterday is still of interest today). Returns rows deleted.
+
+    Note: this compares start_date only — a multi-day event is pruned by its
+    START, so a long festival could vanish while still running. Acceptable:
+    multi-day events are rare in the feed, and the grace window covers most.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute(
+        "DELETE FROM events WHERE start_date < date('now', ?)",
+        (f"-{grace_days} days",),
+    )
+    deleted = cur.rowcount
+    conn.commit()
+    conn.close()
+    return deleted
+    """Upsert OSM place rows. Returns (inserted, updated).
+
+    Each row needs at minimum: slug, osm_type, osm_id, name. The
+    UNIQUE(osm_type, osm_id) constraint makes re-ingestion idempotent — the
+    same OSM element updates in place. interest_tags / osm_tags are stored as
+    JSON strings; pass them as Python lists/dicts and this serializes them.
+    """
+    if not rows:
+        return (0, 0)
+
+    conn = sqlite3.connect(DB_PATH)
+    inserted = updated = 0
+    now = datetime.utcnow().isoformat()
+
+    for r in rows:
+        existed = conn.execute(
+            "SELECT 1 FROM places WHERE osm_type=? AND osm_id=?",
+            (r["osm_type"], r["osm_id"]),
+        ).fetchone()
+
+        tags = r.get("osm_tags")
+        interests = r.get("interest_tags")
+        conn.execute(
+            """
+            INSERT INTO places (
+                slug, osm_type, osm_id, name, category, osm_tags, neighborhood,
+                price_tier, interest_tags, lat, lon, address, website, phone,
+                updated_at
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ON CONFLICT(osm_type, osm_id) DO UPDATE SET
+                name=excluded.name,
+                category=excluded.category,
+                osm_tags=excluded.osm_tags,
+                neighborhood=excluded.neighborhood,
+                price_tier=excluded.price_tier,
+                interest_tags=excluded.interest_tags,
+                lat=excluded.lat,
+                lon=excluded.lon,
+                address=excluded.address,
+                website=excluded.website,
+                phone=excluded.phone,
+                updated_at=excluded.updated_at
+            """,
+            (
+                r["slug"], r["osm_type"], r["osm_id"], r["name"],
+                r.get("category"),
+                json.dumps(tags, ensure_ascii=False) if tags is not None else None,
+                r.get("neighborhood"), r.get("price_tier"),
+                json.dumps(interests, ensure_ascii=False) if interests is not None else None,
+                r.get("lat"), r.get("lon"), r.get("address"),
+                r.get("website"), r.get("phone"), now,
+            ),
+        )
+        if existed:
+            updated += 1
+        else:
+            inserted += 1
+
+    conn.commit()
+    conn.close()
+    return (inserted, updated)
+
+
+def query_places(
+    category:     str | None = None,
+    neighborhood: str | None = None,
+    price_tier:   int | None = None,
+    limit: int = 50,
+) -> list[dict]:
+    """Filter the canonical places store. interest_tags / osm_tags come back
+    as parsed Python objects, not JSON strings."""
+    where: list[str] = []
+    params: list = []
+
+    if category:
+        where.append("LOWER(category) = LOWER(?)"); params.append(category)
+    if neighborhood:
+        where.append("LOWER(neighborhood) = LOWER(?)"); params.append(neighborhood)
+    if price_tier is not None:
+        where.append("price_tier = ?"); params.append(price_tier)
+
+    sql = "SELECT * FROM places"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY name ASC LIMIT ?"
+    params.append(limit)
+
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["interest_tags"] = json.loads(d["interest_tags"]) if d.get("interest_tags") else []
+        d["osm_tags"] = json.loads(d["osm_tags"]) if d.get("osm_tags") else {}
+        out.append(d)
+    return out
 
 
 # Auto-inicializim kur importohet moduli
