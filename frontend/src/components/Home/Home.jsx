@@ -11,7 +11,6 @@ import {
   Droplets,
   PlaneTakeoff,
   PlaneLanding,
-  CalendarRange,
   MessageCircle,
   Compass,
   Leaf,
@@ -19,6 +18,7 @@ import {
   Music,
   Construction,
   BadgePercent,
+  Phone,
 } from "lucide-react";
 
 import { getCityNotes } from "../../lib/api";
@@ -26,62 +26,6 @@ import { getCityNotes } from "../../lib/api";
 import tiranaHeroImage from "../../assets/home.png";
 import exchangeNoteImg from "../../assets/home/exchange-note.png";
 import airportNoteImg from "../../assets/home/airport-note.png";
-import eventsNoteImg from "../../assets/home/events-note.png";
-
-// Tirana's international recognition — hardcoded editorial content. Slow-
-// changing (a few entries a year), so a committed list is the right amount of
-// engineering; each links to its primary source. Rendered as a bento grid in
-// the "Tirana, seen globally" section.
-const ACHIEVEMENTS = [
-  {
-    year: "2018",
-    title: "European Prize for Urban Public Space",
-    blurb:
-      "Skanderbeg Square won Europe's top public-space award, beating 279 candidates from 32 countries for its pedestrian-first redesign.",
-    href: "https://ruby-press.com/skanderbeg-square-by-51n4e-and-anri-sala-wins-european-prize-for-urban-public-space/",
-    size: "large",
-  },
-  {
-    year: "2023",
-    title: "The Pyramid Reborn",
-    blurb:
-      "MVRDV transformed the communist-era Pyramid into a public creative hub, home to the TUMO Center for free tech education.",
-    href: "https://www.mvrdv.com/projects/312/the-pyramid-of-tirana",
-    size: "tall",
-  },
-  {
-    year: "2022",
-    title: "European Youth Capital",
-    blurb:
-      "Awarded the year-long title by the European Youth Forum, running 100+ events under the slogan \u201cActivate Youth.\u201d",
-    href: "https://www.youthforum.org/news/congratulations-tirana-winner-of-the-european-youth-capital-for-2022",
-    size: "small",
-  },
-  {
-    year: "2024",
-    title: "Lonely Planet Spotlight",
-    blurb:
-      "Featured in Lonely Planet's global travel guides, introducing Tirana to mainstream travelers.",
-    href: "https://www.lonelyplanet.com/",
-    size: "small",
-  },
-  {
-    year: "2024",
-    title: "Capital of Innovation Award",
-    blurb:
-      "Honored at the ANGI Awards in Rome for e-governance, smart infrastructure, and grassroots tech support.",
-    href: "https://www.giovaniinnovatori.it/",
-    size: "small",
-  },
-  {
-    year: "2025",
-    title: "Startup Ecosystem Growth",
-    blurb:
-      "Recorded +40.5% annual growth (StartupBlink), now the 32nd strongest startup environment in Eastern Europe.",
-    href: "https://www.startupblink.com/startup-ecosystem/tirana-al",
-    size: "wide",
-  },
-];
 
 function Home() {
   const [notes, setNotes] = useState(null);
@@ -141,6 +85,16 @@ function Home() {
 
   const smartNotes = [
     {
+      icon: Phone,
+      title: "Emergency",
+      label: "Toll-free anywhere",
+      lines: notes?.emergency?.numbers?.map(
+        (n) => `${n.number} · ${n.label}`
+      ) ?? ["112 · General emergency"],
+      variant: "emergency",
+      href: null,
+    },
+    {
       icon: Droplets,
       title: "Exchange Rates",
       label: "EUR → ALL · Iliria'98",
@@ -167,15 +121,6 @@ function Home() {
       variant: "airport",
       image: airportNoteImg,
       href: "https://www.tirana-airport.com/en/flights/arrivals",
-    },
-    {
-      icon: CalendarRange,
-      title: "Events Tonight",
-      label: "Live & local",
-      value: "3 tonight",
-      note: "",
-      variant: "events",
-      image: eventsNoteImg,
     },
   ];
 
@@ -399,12 +344,14 @@ function Home() {
                       )}
                     </div>
 
-                    <img
-                      src={note.image}
-                      alt=""
-                      className="smart-note-illustration"
-                      aria-hidden="true"
-                    />
+                    {note.image && (
+                      <img
+                        src={note.image}
+                        alt=""
+                        className="smart-note-illustration"
+                        aria-hidden="true"
+                      />
+                    )}
                   </Card>
                 );
               })}
@@ -475,34 +422,6 @@ function Home() {
                 <p>{item.title}</p>
                 <span>→</span>
               </div>
-            </a>
-          ))}
-        </div>
-      </section>
-
-      <section className="global-preview-section">
-        <div className="global-preview-header">
-          <div>
-            <h2>Tirana, seen globally.</h2>
-            <p>
-              International recognition shaping how the world sees the city.
-            </p>
-          </div>
-        </div>
-
-        <div className="achievements-bento">
-          {ACHIEVEMENTS.map((a) => (
-            <a
-              className={`achievement-tile achievement-${a.size}`}
-              key={a.year + a.title}
-              href={a.href}
-              target="_blank"
-              rel="noreferrer"
-            >
-              <span className="achievement-year">{a.year}</span>
-              <h3>{a.title}</h3>
-              <p>{a.blurb}</p>
-              <span className="achievement-more">Read more →</span>
             </a>
           ))}
         </div>

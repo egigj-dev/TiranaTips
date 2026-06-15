@@ -5,7 +5,7 @@ import Register from "../../components/Authentication/Register";
 import Login from "../../components/Authentication/Login";
 import loggedSkyline from "../../assets/skyline.png";
 
-import { getPreferences } from "../../lib/api";
+import { getPreferences, getSavedPlaces, getSessionToken } from "../../lib/api";
 
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
@@ -73,14 +73,13 @@ const label = (map, token) => (token ? map[token] || prettify(token) : null);
 function ForYou() {
   const [authView, setAuthView] = useState(null);
   const [prefs, setPrefs] = useState(null);
-  const [isLoggedIn, setIsLoggedIn] = useState(false);
+  // Real auth: logged in iff a session token exists. No manual toggle.
+  const [isLoggedIn, setIsLoggedIn] = useState(() => !!getSessionToken());
 
   const refreshPrefs = useCallback(() => {
+    setIsLoggedIn(!!getSessionToken());
     getPreferences()
-      .then((p) => {
-        setPrefs(p);
-        setIsLoggedIn(!!p.onboarded);
-      })
+      .then((p) => setPrefs(p))
       .catch((err) => {
         console.error("Failed to load preferences:", err);
       });
@@ -90,32 +89,19 @@ function ForYou() {
     refreshPrefs();
   }, [refreshPrefs]);
 
+  const handleLogout = async () => {
+    const { logout } = await import("../../lib/api");
+    await logout();
+    setIsLoggedIn(false);
+    setPrefs(null);
+  };
+
   return (
     <main className="for-you-page">
-      <div className="preview-toggle">
-        <span>Preview:</span>
-
-        <button
-          type="button"
-          className={!isLoggedIn ? "active" : ""}
-          onClick={() => setIsLoggedIn(false)}
-        >
-          Guest
-        </button>
-
-        <button
-          type="button"
-          className={isLoggedIn ? "active" : ""}
-          onClick={() => setIsLoggedIn(true)}
-        >
-          Logged in
-        </button>
-      </div>
-
       {isLoggedIn ? (
         <LoggedInForYou
           prefs={prefs}
-          onLogout={() => setIsLoggedIn(false)}
+          onLogout={handleLogout}
           onEditPreferences={() => setAuthView("preferences")}
         />
       ) : (
@@ -130,7 +116,11 @@ function ForYou() {
         <Register
           onClose={() => setAuthView(null)}
           onSwitch={() => setAuthView("login")}
-          onSaved={refreshPrefs}
+          onRegistered={() => setIsLoggedIn(true)}
+          onSaved={() => {
+            setAuthView(null);
+            refreshPrefs();
+          }}
         />
       )}
 
@@ -140,14 +130,22 @@ function ForYou() {
           setupOnly={true}
           onClose={() => setAuthView(null)}
           onSwitch={() => setAuthView("login")}
-          onSaved={refreshPrefs}
+          onSaved={() => {
+            setAuthView(null);
+            refreshPrefs();
+          }}
         />
       )}
 
       {authView === "login" && (
         <Login
           onClose={() => setAuthView(null)}
-          onSwitch={() => setAuthView("register")}
+          onLogin={() => {
+            setAuthView(null);
+            setIsLoggedIn(true);
+            refreshPrefs();
+          }}
+          onSwitchToRegister={() => setAuthView("register")}
         />
       )}
     </main>
@@ -306,114 +304,33 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
   const [showFullMap, setShowFullMap] = useState(false);
   const [showSavedModal, setShowSavedModal] = useState(false);
 
+  // Real saved places (login-required). Replaces the old hardcoded mock list.
+  const [savedPlaces, setSavedPlaces] = useState([]);
+
+  useEffect(() => {
+    if (!getSessionToken()) {
+      setSavedPlaces([]);
+      return;
+    }
+    getSavedPlaces()
+      .then((r) => setSavedPlaces(r.places || []))
+      .catch(() => setSavedPlaces([]));
+  }, []);
+
   const interests =
     prefs?.interests?.length > 0
       ? prefs.interests.map((i) => label(INTEREST_LABELS, i))
-      : [
-          "Coffee",
-          "Restaurants",
-          "Nature",
-          "Culture",
-          "Events",
-          "Hidden gems",
-          "Work-friendly cafés",
-          "Day trips",
-        ];
+      : [];
 
-  const savedPlaces = [
-    {
-      name: "Mullixhiu",
-      type: "Restaurant",
-      area: "Blloku",
-      rating: "4.8",
-      note: "Great for dinner",
-      lat: 41.3186,
-      lng: 19.8167,
-      image:
-        "https://images.unsplash.com/photo-1517248135467-4c7edcad34c4?auto=format&fit=crop&w=600&q=80",
-    },
-    {
-      name: "Salt Tirana",
-      type: "Café",
-      area: "Blloku",
-      rating: "4.7",
-      note: "Great coffee",
-      lat: 41.3211,
-      lng: 19.8147,
-      image:
-        "https://images.unsplash.com/photo-1509042239860-f550ce710b93?auto=format&fit=crop&w=600&q=80",
-    },
-    {
-      name: "Radio Bar",
-      type: "Bar",
-      area: "Blloku",
-      rating: "4.6",
-      note: "Good nightlife",
-      lat: 41.3217,
-      lng: 19.8153,
-      image:
-        "https://images.unsplash.com/photo-1572116469696-31de0f17cc34?auto=format&fit=crop&w=600&q=80",
-    },
-    {
-      name: "Pazari i Ri",
-      type: "Market",
-      area: "Center",
-      rating: "4.6",
-      note: "Local vibe",
-      lat: 41.3295,
-      lng: 19.8246,
-      image:
-        "https://images.unsplash.com/photo-1533900298318-6b8da08a523e?auto=format&fit=crop&w=600&q=80",
-    },
-    {
-      name: "Komiteti",
-      type: "Bar",
-      area: "Center",
-      rating: "4.6",
-      note: "Vintage atmosphere",
-      lat: 41.3264,
-      lng: 19.8205,
-      image:
-        "https://images.unsplash.com/photo-1514933651103-005eec06c04b?auto=format&fit=crop&w=600&q=80",
-    },
-    {
-      name: "Liqeni Artificial",
-      type: "Nature",
-      area: "Liqeni",
-      rating: "4.7",
-      note: "Relaxing",
-      lat: 41.3128,
-      lng: 19.8166,
-      image:
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=600&q=80",
-    },
-    {
-      name: "Grand Park",
-      type: "Nature",
-      area: "Liqeni",
-      rating: "4.8",
-      note: "Peaceful walk",
-      lat: 41.3147,
-      lng: 19.8179,
-      image:
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=600&q=80",
-    },
-    {
-      name: "Dajti Mountain",
-      type: "Nature",
-      area: "Dajti",
-      rating: "4.7",
-      note: "Best views",
-      lat: 41.3632,
-      lng: 19.9224,
-      image:
-        "https://images.unsplash.com/photo-1500530855697-b586d89ba3ee?auto=format&fit=crop&w=600&q=80",
-    },
-  ];
-
+  // Real saves carry neighborhood (not "area") and lat/lng. Places with
+  // coordinates can appear on the map; the area modal filters by neighborhood.
   const areaSavedPlaces = selectedArea
-    ? savedPlaces.filter((place) => place.area === selectedArea)
+    ? savedPlaces.filter((place) => place.neighborhood === selectedArea)
     : [];
+
+  const mappablePlaces = savedPlaces.filter(
+    (p) => p.lat != null && p.lng != null
+  );
 
   const memberSince = prefs?.created_at
     ? new Date(prefs.created_at).toLocaleDateString("en-GB", {
@@ -438,7 +355,7 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
     {
       icon: Languages,
       label: "Language",
-      value: "English",
+      value: prefs?.language || "Not set",
       className: "summary-language",
     },
     {
@@ -449,31 +366,34 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
     },
   ];
 
+  // Only the fields that have real backend storage are shown with values; the
+  // rest are honestly "Not set" until their models land (areas/style/pace/
+  // notifications have no backend yet).
   const preferences = [
     {
       icon: MapPinned,
       label: "Preferred areas",
-      value: "Blloku, Center, Liqeni",
+      value: "Not set",
     },
     {
       icon: Sparkles,
       label: "City style",
-      value: "Calm & scenic, Food-focused",
+      value: "Not set",
     },
     {
       icon: Bell,
       label: "Notifications",
-      value: "On",
+      value: "Not set",
     },
     {
       icon: Gauge,
       label: "Travel pace",
-      value: "Balanced",
+      value: "Not set",
     },
     {
       icon: Globe2,
       label: "Content language",
-      value: "English",
+      value: prefs?.language ? label({}, prefs.language) : "Not set",
     },
   ];
 
@@ -556,35 +476,37 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
               </div>
             </div>
 
-            <button
-              type="button"
-              className="view-all-btn"
-              onClick={() => setShowSavedModal(true)}
-            >
-              View all
-            </button>
+            {savedPlaces.length > 0 && (
+              <button
+                type="button"
+                className="view-all-btn"
+                onClick={() => setShowSavedModal(true)}
+              >
+                View all
+              </button>
+            )}
           </div>
 
-          <div className="saved-dashboard-grid">
-            {savedPlaces.slice(0, 5).map((place) => (
-              <article className="saved-place-card" key={place.name}>
-                <div className="saved-image-wrap">
-                  <img src={place.image} alt={place.name} />
-                  <button type="button">♡</button>
-                </div>
-
-                <div className="saved-place-content">
-                  <h3>{place.name}</h3>
-                  <p>
-                    {place.type} · {place.area}
-                  </p>
-                  <small>
-                    ★ {place.rating} · {place.note}
-                  </small>
-                </div>
-              </article>
-            ))}
-          </div>
+          {savedPlaces.length === 0 ? (
+            <p className="saved-empty">
+              No saved places yet. Head to Explore and tap the bookmark on any
+              place to keep it here.
+            </p>
+          ) : (
+            <div className="saved-dashboard-grid">
+              {savedPlaces.slice(0, 5).map((place) => (
+                <article className="saved-place-card" key={place.slug}>
+                  <div className="saved-place-content">
+                    <h3>{place.name}</h3>
+                    <p>
+                      {place.category}
+                      {place.neighborhood ? ` · ${place.neighborhood}` : ""}
+                    </p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
         </article>
 
         <article className="dashboard-card interests-card">
@@ -597,11 +519,18 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
             <button type="button">♡</button>
           </div>
 
-          <div className="interest-pill-grid">
-            {interests.map((interest) => (
-              <span key={interest}>{interest}</span>
-            ))}
-          </div>
+          {interests.length === 0 ? (
+            <p className="saved-empty">
+              No interests selected yet. Edit your profile to choose what you
+              like.
+            </p>
+          ) : (
+            <div className="interest-pill-grid">
+              {interests.map((interest) => (
+                <span key={interest}>{interest}</span>
+              ))}
+            </div>
+          )}
 
           <button type="button" className="text-link-btn" onClick={onEditPreferences}>
             Edit interests →
@@ -670,22 +599,22 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
             <button
               type="button"
               className="map-area-chip chip-center"
-              onClick={() => openAreaModal("Center")}
+              onClick={() => openAreaModal("Qendra")}
             >
-              Center
+              Qendra
             </button>
 
             <button
               type="button"
               className="map-area-chip chip-liqeni"
-              onClick={() => openAreaModal("Liqeni")}
+              onClick={() => openAreaModal("Liqeni / Grand Park")}
             >
               Liqeni
             </button>
           </div>
 
           <div className="map-preferred-row">
-            <span>Preferred areas:</span>
+            <span>Browse areas:</span>
 
             <button type="button" onClick={() => openAreaModal("Blloku")}>
               Blloku
@@ -693,26 +622,16 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
 
             <i>·</i>
 
-            <button type="button" onClick={() => openAreaModal("Center")}>
-              Center
+            <button type="button" onClick={() => openAreaModal("Qendra")}>
+              Qendra
             </button>
 
             <i>·</i>
 
-            <button type="button" onClick={() => openAreaModal("Liqeni")}>
+            <button type="button" onClick={() => openAreaModal("Liqeni / Grand Park")}>
               Liqeni
             </button>
           </div>
-
-          <button
-            type="button"
-            className="map-saved-pill"
-            onClick={() => openAreaModal("Blloku")}
-          >
-            <Star size={15} strokeWidth={2.4} />
-            <span>Most saved area:</span>
-            <strong>Blloku</strong>
-          </button>
 
           <button
             type="button"
@@ -749,20 +668,13 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
 
             <div className="saved-modal-grid">
               {savedPlaces.map((place) => (
-                <article className="saved-modal-card" key={place.name}>
-                  <div className="saved-modal-image">
-                    <img src={place.image} alt={place.name} />
-                    <button type="button">♡</button>
-                  </div>
-
+                <article className="saved-modal-card" key={place.slug}>
                   <div className="saved-modal-content">
                     <h3>{place.name}</h3>
                     <p>
-                      {place.type} · {place.area}
+                      {place.category}
+                      {place.neighborhood ? ` · ${place.neighborhood}` : ""}
                     </p>
-                    <small>
-                      ★ {place.rating} · {place.note}
-                    </small>
                   </div>
                 </article>
               ))}
@@ -796,20 +708,13 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
             {areaSavedPlaces.length > 0 ? (
               <div className="saved-modal-grid">
                 {areaSavedPlaces.map((place) => (
-                  <article className="saved-modal-card" key={place.name}>
-                    <div className="saved-modal-image">
-                      <img src={place.image} alt={place.name} />
-                      <button type="button">♡</button>
-                    </div>
-
+                  <article className="saved-modal-card" key={place.slug}>
                     <div className="saved-modal-content">
                       <h3>{place.name}</h3>
                       <p>
-                        {place.type} · {place.area}
+                        {place.category}
+                        {place.neighborhood ? ` · ${place.neighborhood}` : ""}
                       </p>
-                      <small>
-                        ★ {place.rating} · {place.note}
-                      </small>
                     </div>
                   </article>
                 ))}
@@ -857,17 +762,17 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
                   url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
                 />
 
-                {savedPlaces.map((place) => (
+                {mappablePlaces.map((place) => (
                   <Marker
-                    key={place.name}
+                    key={place.slug}
                     position={[place.lat, place.lng]}
                     icon={mapMarkerIcon}
                   >
                     <Popup>
                       <strong>{place.name}</strong>
                       <br />
-                      {place.type} · {place.area}
-                      <br />★ {place.rating} · {place.note}
+                      {place.category}
+                      {place.neighborhood ? ` · ${place.neighborhood}` : ""}
                     </Popup>
                   </Marker>
                 ))}

@@ -271,3 +271,40 @@
   font-weight: 800;
   color: #1f5a2e;
 }
+
+/* === Explore: save button on place cards === */
+/* Append to explore.css */
+.place-save-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border: none;
+  background: transparent;
+  color: #9aa39b;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+.place-save-btn:hover {
+  color: #1f5a2e;
+  background: rgba(31, 90, 46, 0.08);
+}
+.place-save-btn.is-saved {
+  color: #1f5a2e;
+}
+
+.explore-toast {
+  position: fixed;
+  bottom: 28px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 300;
+  padding: 12px 22px;
+  border-radius: 999px;
+  background: #14361f;
+  color: #fffaf1;
+  font-size: 14px;
+  font-weight: 700;
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.25);
+}

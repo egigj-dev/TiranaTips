@@ -5,11 +5,9 @@ import {
   getPreferenceOptions,
   savePreferences,
   getPreferences,
+  register,
 } from "../../lib/api";
 
-// Display labels for the backend's canonical tokens. Anything not listed
-// falls back to a generic prettifier (underscores → spaces, capitalized),
-// so adding a new backend option never breaks the UI.
 const MODE_LABELS = {
   local: "Local",
   student: "Student",
@@ -35,13 +33,9 @@ const prettify = (token) =>
 
 const label = (map, token) => map[token] || prettify(token);
 
-function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = false }) {
+function Register({ onClose, onSwitch, onSaved, onRegistered, initialStep = 1, setupOnly = false }) {
   const [step, setStep] = useState(initialStep);
 
-  // NOTE: step 1 (name/email/password) has NO backend yet — there is no
-  // auth API. It validates locally and is kept for the future accounts
-  // feature. Only step 2 (preferences) persists, keyed by the anonymous
-  // localStorage user_id.
   const [formData, setFormData] = useState({
     firstName: "",
     lastName: "",
@@ -50,6 +44,7 @@ function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = fal
     cityMode: "",
     budget: "",
     currency: "",
+    language: "",
   });
 
   const [selectedInterests, setSelectedInterests] = useState([]);
@@ -58,9 +53,6 @@ function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = fal
   const [errors, setErrors] = useState({});
   const [isSaving, setIsSaving] = useState(false);
 
-  // Canonical option lists from the backend. The Pydantic validators on
-  // PUT /preferences reject anything outside these sets, so the chips MUST
-  // render backend tokens — hardcoded labels like "Restaurants" would 422.
   const [options, setOptions] = useState({
     modes: [],
     price_tiers: [],
@@ -73,8 +65,6 @@ function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = fal
       .then(setOptions)
       .catch((err) => console.error("Failed to load preference options:", err));
 
-    // Pre-fill from saved preferences so "Edit preferences" shows current
-    // values instead of a blank form.
     getPreferences()
       .then((prefs) => {
         setFormData((prev) => ({
@@ -85,13 +75,9 @@ function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = fal
         }));
         setSelectedInterests(prefs.interests || []);
       })
-      .catch(() => {
-        // New user / backend unreachable — empty form is fine.
-      });
+      .catch(() => {});
   }, []);
 
-  // "Preferred areas" and "city style" have no backend field yet —
-  // they stay local-only until the places/areas model lands.
   const areas = [
     "Blloku",
     "City Center",
@@ -171,20 +157,36 @@ function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = fal
     return Object.keys(newErrors).length === 0;
   };
 
-  const handleContinue = () => {
-    if (validateStepOne()) {
+  // Step 1 now creates a REAL backend account (email = username), then
+  // advances to preferences. Step 2 persists prefs keyed to the account.
+  const handleContinue = async () => {
+    if (!validateStepOne()) return;
+    setIsSaving(true);
+    try {
+      await register(
+        formData.email.trim(),
+        formData.password,
+        formData.firstName.trim() || formData.email.trim(),
+        formData.language || "en"
+      );
+      onRegistered?.(formData.firstName.trim() || formData.email.trim());
       setStep(2);
+    } catch (err) {
+      setErrors((prev) => ({
+        ...prev,
+        email:
+          err.status === 409
+            ? "An account with this email already exists."
+            : "Couldn't create your account. Please try again.",
+      }));
+    } finally {
+      setIsSaving(false);
     }
   };
 
   const handleFinishSetup = async () => {
     setIsSaving(true);
     try {
-      // PUT is a partial upsert on the backend: null fields are preserved.
-      // interests is sent as-is — an empty array explicitly CLEARS it
-      // (deselecting every chip is an intentional "no interests" choice).
-      // mode/budget/currency stay null-if-empty: their selects can't be
-      // deselected, so "" only ever means "never chosen".
       await savePreferences({
         mode: formData.cityMode || null,
         price_tier: formData.budget || null,
@@ -311,12 +313,37 @@ function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = fal
                 )}
               </div>
 
+              <div className="form-group">
+                <label>App language</label>
+                <select
+                  name="language"
+                  value={formData.language}
+                  onChange={handleInputChange}
+                >
+                  <option value="" disabled>
+                    Choose language
+                  </option>
+                  <option value="en">English</option>
+                  <option value="sq">Shqip</option>
+                  <option value="it">Italiano</option>
+                  <option value="de">Deutsch</option>
+                  <option value="fr">Français</option>
+                  <option value="es">Español</option>
+                  <option value="tr">Türkçe</option>
+                  <option value="el">Ελληνικά</option>
+                  <option value="ru">Русский</option>
+                  <option value="zh">中文</option>
+                  <option value="ar">العربية</option>
+                </select>
+              </div>
+
               <button
                 type="button"
                 className="auth-submit"
                 onClick={handleContinue}
+                disabled={isSaving}
               >
-                Continue
+                {isSaving ? "Creating account..." : "Continue"}
               </button>
             </form>
 
@@ -459,16 +486,6 @@ function Register({ onClose, onSwitch, onSaved, initialStep = 1, setupOnly = fal
               )}
 
               <div className="auth-step-actions">
-                {!setupOnly && (
-                  <button
-                    type="button"
-                    className="auth-secondary-btn"
-                    onClick={() => setStep(1)}
-                  >
-                    Back
-                  </button>
-                )}
-
                 <button
                   type="button"
                   className="auth-submit"

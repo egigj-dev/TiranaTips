@@ -1400,3 +1400,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+.saved-empty {
+  margin: 12px 0 4px;
+  padding: 18px 16px;
+  border-radius: 14px;
+  background: rgba(31, 90, 46, 0.05);
+  border: 1px dashed rgba(31, 90, 46, 0.25);
+  color: #4f5d52;
+  font-size: 13.5px;
+  line-height: 1.5;
+}

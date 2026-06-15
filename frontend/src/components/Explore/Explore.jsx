@@ -1,10 +1,11 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import "./explore.css";
 import {
   Search,
   Star,
   MapPin,
   ExternalLink,
+  Bookmark,
   UtensilsCrossed,
   Wine,
   Landmark,
@@ -15,11 +16,16 @@ import {
   Ticket,
 } from "lucide-react";
 
-import { explorePlaces, browsePlaces, getEvents } from "../../lib/api";
+import {
+  explorePlaces,
+  browsePlaces,
+  getEvents,
+  savePlace,
+  unsavePlace,
+  getSavedSlugs,
+  getSessionToken,
+} from "../../lib/api";
 
-// Categories are preset queries sent to the same /places/explore endpoint.
-// label = chip text; browseCat = our stored `category` value (matches the OSM
-// ingestion buckets); query = semantic hint sent to browse's vector side.
 const CATEGORIES = [
   { key: "eat", label: "Eat", icon: UtensilsCrossed, browseCat: "eat", query: "restaurant" },
   { key: "drink", label: "Drink", icon: Wine, browseCat: "drink", query: "bar" },
@@ -29,8 +35,6 @@ const CATEGORIES = [
   { key: "outdoors", label: "Outdoors", icon: Trees, browseCat: "outdoors", query: "park" },
 ];
 
-// Neighborhoods with real coverage (from the enrichment pass). Kept in sync
-// with places_enrich.py's boxes.
 const NEIGHBORHOODS = [
   "Blloku", "Tirana e Re", "21 Dhjetori", "Qendra",
   "Myslym Shyri", "Pazari i Ri", "Komuna e Parisit", "Liqeni / Grand Park",
@@ -46,15 +50,72 @@ function Explore() {
   const [openOnly, setOpenOnly] = useState(false);
   const [minRating, setMinRating] = useState(0);
   const [hasSearched, setHasSearched] = useState(false);
-  // Monotonic request id. Every fetch captures the current value; when it
-  // resolves, it only commits results if it's STILL the latest request.
-  // Without this, clicking chips fast lets a slow response (e.g. cafes, with
-  // 12 enrichment calls) land after a newer one and overwrite it — you'd see
-  // parks under the Cafés chip. This is the "stays same / wrong category" bug.
   const reqId = useRef(0);
-  // Events mode: when on, the page shows upcoming events instead of places.
   const [mode, setMode] = useState("places"); // "places" | "events"
   const [events, setEvents] = useState([]);
+
+  // Saved places (by slug). Login-required: loaded only when a token exists.
+  const [savedSlugs, setSavedSlugs] = useState([]);
+  const [toast, setToast] = useState("");
+
+  useEffect(() => {
+    if (getSessionToken()) {
+      getSavedSlugs()
+        .then((r) => setSavedSlugs(r.slugs || []))
+        .catch(() => {});
+    }
+  }, []);
+
+  const showToast = (msg) => {
+    setToast(msg);
+    setTimeout(() => setToast(""), 2500);
+  };
+
+  // A saved place is referenced by its owned slug, or — for Google text-search
+  // results, which aren't in our places table — a namespaced 'g:<place_id>'.
+  // The namespace can't collide with an OSM slug and tells the backend to
+  // store the card's payload instead of relying on a join.
+  const placeRef = (p) => p.slug || (p.place_id ? `g:${p.place_id}` : null);
+
+  // Self-describing card data sent only for external (Google) saves.
+  const externalPayload = (p) => ({
+    name: p.name,
+    type: p.type,
+    address: p.address,
+    maps_url: p.maps_url,
+    rating: p.rating,
+    reviews: p.reviews,
+    price: p.price,
+    gps: p.gps,
+  });
+
+  const toggleSave = async (e, p) => {
+    // Cards are <a> tags — stop the click from navigating away.
+    e.preventDefault();
+    e.stopPropagation();
+    if (!getSessionToken()) {
+      showToast("Log in to save places");
+      return;
+    }
+    const ref = placeRef(p);
+    if (!ref) return;
+    const isSaved = savedSlugs.includes(ref);
+    setSavedSlugs((prev) =>
+      isSaved ? prev.filter((s) => s !== ref) : [...prev, ref]
+    );
+    try {
+      if (isSaved) await unsavePlace(ref);
+      // Owned places live in our table (no payload needed); Google results
+      // carry their card data so saved places can render without a join.
+      else await savePlace(ref, p.slug ? null : externalPayload(p));
+    } catch {
+      // Revert on failure.
+      setSavedSlugs((prev) =>
+        isSaved ? [...prev, ref] : prev.filter((s) => s !== ref)
+      );
+      showToast("Couldn't update saved places");
+    }
+  };
 
   const showEvents = async () => {
     const myReq = ++reqId.current;
@@ -64,7 +125,7 @@ function Explore() {
     setActiveCat(null);
     try {
       const { events: list } = await getEvents(30);
-      if (myReq !== reqId.current) return; // a newer request superseded this
+      if (myReq !== reqId.current) return;
       setEvents(list || []);
     } catch {
       if (myReq !== reqId.current) return;
@@ -75,7 +136,6 @@ function Explore() {
     }
   };
 
-  // Free-text search → Google (broad coverage, anything goes).
   const runTextSearch = async (query) => {
     if (!query.trim()) return;
     const myReq = ++reqId.current;
@@ -98,8 +158,6 @@ function Explore() {
     }
   };
 
-  // Category (+ optional neighborhood) → browse our owned, filterable index,
-  // enriched with live Google fields so cards stay rich.
   const runCategory = async (cat, hood) => {
     const myReq = ++reqId.current;
     setMode("places");
@@ -126,14 +184,12 @@ function Explore() {
     }
   };
 
-  // Changing the neighborhood dropdown re-runs the active category.
   const onHoodChange = (hood) => {
     setActiveHood(hood);
     const cat = CATEGORIES.find((c) => c.key === activeCat);
     if (cat) runCategory(cat, hood);
   };
 
-  // Filters are client-side over the fetched result set — no extra API calls.
   const filtered = results.filter((p) => {
     if (openOnly && p.open_now !== "Open") return false;
     if (minRating && (p.rating ?? 0) < minRating) return false;
@@ -178,8 +234,6 @@ function Explore() {
             );
           })}
 
-          {/* Neighborhood filter only applies to category browsing (our owned
-              index has neighborhoods; free-text Google results don't). */}
           {activeCat && (
             <select
               className="hood-select"
@@ -193,7 +247,6 @@ function Explore() {
             </select>
           )}
 
-          {/* Events chip — switches the page to upcoming events. */}
           <button
             type="button"
             className={
@@ -297,54 +350,74 @@ function Explore() {
             )}
 
             <div className="explore-grid">
-              {filtered.map((p, i) => (
-                <a
-                  key={p.slug || p.place_id || `${p.name}-${i}`}
-                  className="place-card"
-                  href={p.maps_url}
-                  target="_blank"
-                  rel="noreferrer"
-                >
-                  <div className="place-card-head">
-                    <h3>{p.name}</h3>
-                    <ExternalLink size={15} className="place-card-ext" />
-                  </div>
+              {filtered.map((p, i) => {
+                const ref = placeRef(p);
+                const isSaved = ref && savedSlugs.includes(ref);
+                return (
+                  <a
+                    key={ref || `${p.name}-${i}`}
+                    className="place-card"
+                    href={p.maps_url}
+                    target="_blank"
+                    rel="noreferrer"
+                  >
+                    <div className="place-card-head">
+                      <h3>{p.name}</h3>
+                      {ref ? (
+                        <button
+                          type="button"
+                          className={"place-save-btn" + (isSaved ? " is-saved" : "")}
+                          onClick={(e) => toggleSave(e, p)}
+                          aria-label={isSaved ? "Unsave place" : "Save place"}
+                        >
+                          <Bookmark
+                            size={16}
+                            fill={isSaved ? "currentColor" : "none"}
+                          />
+                        </button>
+                      ) : (
+                        <ExternalLink size={15} className="place-card-ext" />
+                      )}
+                    </div>
 
-                  {p.type && <span className="place-type">{p.type}</span>}
+                    {p.type && <span className="place-type">{p.type}</span>}
 
-                  <div className="place-meta">
-                    {p.rating != null && (
-                      <span className="place-rating">
-                        <Star size={13} fill="currentColor" /> {p.rating}
-                        {p.reviews != null && (
-                          <em>({p.reviews.toLocaleString()})</em>
-                        )}
-                      </span>
+                    <div className="place-meta">
+                      {p.rating != null && (
+                        <span className="place-rating">
+                          <Star size={13} fill="currentColor" /> {p.rating}
+                          {p.reviews != null && (
+                            <em>({p.reviews.toLocaleString()})</em>
+                          )}
+                        </span>
+                      )}
+                      {p.price && <span className="place-price">{p.price}</span>}
+                      {p.open_now && (
+                        <span
+                          className={
+                            "place-open " +
+                            (p.open_now === "Open" ? "is-open" : "is-closed")
+                          }
+                        >
+                          {p.open_now}
+                        </span>
+                      )}
+                    </div>
+
+                    {p.address && (
+                      <p className="place-address">
+                        <MapPin size={13} /> {p.address}
+                      </p>
                     )}
-                    {p.price && <span className="place-price">{p.price}</span>}
-                    {p.open_now && (
-                      <span
-                        className={
-                          "place-open " +
-                          (p.open_now === "Open" ? "is-open" : "is-closed")
-                        }
-                      >
-                        {p.open_now}
-                      </span>
-                    )}
-                  </div>
-
-                  {p.address && (
-                    <p className="place-address">
-                      <MapPin size={13} /> {p.address}
-                    </p>
-                  )}
-                </a>
-              ))}
+                  </a>
+                );
+              })}
             </div>
           </>
         )}
       </section>
+
+      {toast && <div className="explore-toast">{toast}</div>}
     </main>
   );
 }

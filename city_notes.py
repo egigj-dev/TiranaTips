@@ -55,6 +55,15 @@ _cache: dict = {
     "exchange": None,
     "departures": None,
     "arrivals": None,
+    "emergency": {
+        "numbers": [
+            {"number": "112", "label": "General emergency (EU standard)"},
+            {"number": "129", "label": "Police"},
+            {"number": "127", "label": "Ambulance"},
+            {"number": "128", "label": "Fire brigade"},
+        ],
+        "note": "Toll-free from any phone, including roaming.",
+    },
 }
 
 

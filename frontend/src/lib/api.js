@@ -1,6 +1,8 @@
 // src/lib/api.js
 // Single place where the frontend talks to the FastAPI backend.
-//
+import { getSessionToken } from "./auth.js";
+
+
 // Base URL comes from Vite env (`VITE_API_BASE` in .env.development /
 // .env.production). Falls back to same-origin "" so a reverse-proxied
 // production deploy (nginx serving the SPA + proxying /chat etc.) works
@@ -58,10 +60,15 @@ export function setSessionId(id) {
 // Small JSON helper
 // ---------------------------------------------------------------------------
 
-async function request(path, options = {}) {
+export async function request(path, options = {}) {
+  const { headers, ...rest } = options;
   const res = await fetch(`${API_BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...options,
+    // Merge caller headers onto the JSON default. Spreading `...options`
+    // directly let a caller's `headers` (e.g. authHeaders()) replace the whole
+    // object and drop Content-Type, so body-bearing POSTs (e.g. /saves) were
+    // sent without a JSON content-type and rejected with 422.
+    headers: { "Content-Type": "application/json", ...headers },
+    ...rest,
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
@@ -85,7 +92,7 @@ async function request(path, options = {}) {
 // ---------------------------------------------------------------------------
 
 export async function streamChat(
-  { question, language = "auto", model = null, isRetry = false },
+  { question, language = "auto", model = null, isRetry = false, context_session_id = null } = {},
   { onSources, onToken, onTranslation, onLowConfidence } = {},
   signal = undefined
 ) {
@@ -99,6 +106,7 @@ export async function streamChat(
       language,
       is_retry: isRetry,
       ...(model ? { model } : {}),
+      ...(context_session_id ? { context_session_id } : {}),
     }),
     signal,
   });
@@ -236,6 +244,31 @@ export const browsePlaces = (params) =>
 
 export const getCityNotes = () => request("/city/notes");
 
+/** Fetch summaries for all sessions — used by the context-picker modal. */
+export const getSummaries = () => request("/summaries");
+
+/** Fetch a single session's summary. */
+export const getSummary = (sessionId) => request(`/summary/${sessionId}`);
+
+/** Download a session's history as a plain-text file. */
+export async function downloadSession(sessionId, displayName) {
+  const { messages } = await getHistoryFor(sessionId);
+  const lines = messages.map((m) => {
+    const role = m.role === "user" ? "You" : "TiranaTips";
+    return `[${role}]\n${m.content}\n`;
+  });
+  const text = lines.join("\n---\n\n");
+  const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `${displayName || "chat"}.txt`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
 // Upcoming events for the Explore page — from the same ingested events table
 // the chat uses. {count, events:[{title, description, category, start_date,
 // end_date, venue, image_url, ticket_url, source_url}]}.
@@ -250,4 +283,29 @@ export const getEvents = (days = 30, category = null) => {
 // Re-exported from ./auth.js which validates against local users.json.
 // ---------------------------------------------------------------------------
 
-export { login, logout, checkSession, getSessionToken } from "./auth.js";
+export { login, register, logout, checkSession, getSessionToken } from "./auth.js";
+
+
+const authHeaders = () => {
+  const token = getSessionToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+};
+ 
+export const savePlace = (slug, payload = null) =>
+  request("/saves", {
+    method: "POST",
+    headers: authHeaders(),
+    body: JSON.stringify(payload ? { slug, payload } : { slug }),
+  });
+ 
+export const unsavePlace = (slug) =>
+  request(`/saves/${encodeURIComponent(slug)}`, {
+    method: "DELETE",
+    headers: authHeaders(),
+  });
+ 
+export const getSavedPlaces = () =>
+  request("/saves", { headers: authHeaders() });
+ 
+export const getSavedSlugs = () =>
+  request("/saves/slugs", { headers: authHeaders() });

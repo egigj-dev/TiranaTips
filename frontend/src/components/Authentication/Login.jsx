@@ -2,7 +2,7 @@ import { useState } from "react";
 import "./auth.css";
 import { login } from "../../lib/api";
 
-function Login({ onClose, onLogin }) {
+function Login({ onClose, onLogin, onSwitchToRegister }) {
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
@@ -94,6 +94,17 @@ function Login({ onClose, onLogin }) {
             {loading ? "Logging in..." : "Login"}
           </button>
         </form>
+
+        {onSwitchToRegister && (
+          <div className="auth-switch">
+            <p>
+              Don&apos;t have an account?{" "}
+              <button type="button" onClick={onSwitchToRegister}>
+                Sign up
+              </button>
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

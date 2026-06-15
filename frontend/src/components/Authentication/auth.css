@@ -442,3 +442,15 @@
 .password-toggle svg {
   display: block;
 }
+
+.setup-chip-grid button.setup-chip-active {
+  background: #1f5a2e;
+  border-color: #1f5a2e;
+  color: #fffaf1;
+  font-weight: 800;
+}
+
+.setup-chip-grid button.setup-chip-active:hover {
+  background: #184925;
+  border-color: #184925;
+}

@@ -14,6 +14,8 @@ import {
   setSessionId,
   getSessionId,
   deleteSession,
+  downloadSession,
+  getSummaries,
 } from "../../lib/api";
 
 const mapMarkerIcon = new L.Icon({
@@ -47,6 +49,8 @@ function Ask() {
   const [isTyping, setIsTyping] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [feedbackGiven, setFeedbackGiven] = useState({}); // {messageId: 1|-1}
+  const [contextSession, setContextSession] = useState(null); // {session_id, display_name}
+  const [showContextPicker, setShowContextPicker] = useState(false);
 
 
   const mostAsked = [
@@ -113,7 +117,23 @@ function Ask() {
     const id = newSession();
     setActiveSession(id);
     setMessages([WELCOME_MESSAGE]);
+    setContextSession(null);
   };
+
+  const startNewChatWithContext = () => {
+    // First create the new session, then open the context picker
+    const id = newSession();
+    setActiveSession(id);
+    setMessages([WELCOME_MESSAGE]);
+    setShowContextPicker(true);
+  };
+
+  const loadContext = (ctx) => {
+    setContextSession(ctx);
+    setShowContextPicker(false);
+  };
+
+  const clearContext = () => setContextSession(null);
 
   const removeSession = async (sessionId, event) => {
     event.stopPropagation(); // don't also trigger openSession on the row
@@ -205,7 +225,7 @@ function Ask() {
 
     try {
       await streamChat(
-        { question: trimmed },
+        { question: trimmed, context_session_id: contextSession?.session_id },
         {
           onSources: (sources) => {
             ensureBubble();
@@ -264,7 +284,7 @@ function Ask() {
 
   return (
     <main className="ask-page">
-      <section className="ask-intro">
+      {/* <section className="ask-intro">
         <div className="ask-decor ask-decor-left">
           <span className="tt-logo-icon hero-corner-logo" aria-hidden="true"></span>          <span className="decor-leaf decor-leaf-one"></span>
           <span className="decor-leaf decor-leaf-two"></span>
@@ -275,20 +295,7 @@ function Ask() {
           <span className="decor-statue"></span>
           <span className="decor-building"></span>
         </div>
-
-        <div className="ask-intro-content">
-          <span className="ask-eyebrow">Ask TiranaTips</span>
-
-          <h1>
-            What do you need to know <br /> about Tirana today?
-          </h1>
-
-          <p>
-            Get quick local answers for food, events, transport, safety, money,
-            nightlife, and daily plans.
-          </p>
-        </div>
-      </section>
+      </section> */}
 
       <section className="assistant-shell">
         <aside className="assistant-side">
@@ -321,18 +328,44 @@ function Ask() {
                   onClick={() => openSession(s.session_id)}
                 >
                   <span className="session-name">{s.display_name}</span>
-                  <button
-                    type="button"
-                    className="session-delete"
-                    aria-label="Delete chat"
-                    onClick={(e) => removeSession(s.session_id, e)}
-                  >
-                    ×
-                  </button>
+                  <div className="session-actions">
+                    <button
+                      type="button"
+                      className="session-download"
+                      aria-label="Download chat"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        downloadSession(s.session_id, s.display_name);
+                      }}
+                      title="Download chat"
+                    >
+                      ⬇
+                    </button>
+                    <button
+                      type="button"
+                      className="session-delete"
+                      aria-label="Delete chat"
+                      onClick={(e) => removeSession(s.session_id, e)}
+                    >
+                      ×
+                    </button>
+                  </div>
                 </div>
               ))}
             </div>
           )}
+
+          <div className="sidebar-actions">
+            <button
+              type="button"
+              className="context-btn"
+              onClick={startNewChatWithContext}
+              title="Start a new chat with context from a past conversation"
+            >
+              <span>📋</span>
+              New with context
+            </button>
+          </div>
 
           <div className="most-asked">
             <h3>Most asked</h3>
@@ -489,6 +522,23 @@ function Ask() {
       )}
 
       {toastMessage && <div className="save-toast">{toastMessage}</div>}
+
+      {contextSession && (
+        <div className="context-banner">
+          <span>📋 Context loaded: <strong>{contextSession.display_name}</strong></span>
+          <button type="button" onClick={clearContext} title="Remove context">
+            ×
+          </button>
+        </div>
+      )}
+
+      {showContextPicker && (
+        <ContextPickerModal
+          currentSessionId={activeSession}
+          onSelect={loadContext}
+          onClose={() => setShowContextPicker(false)}
+        />
+      )}
     </main>
   );
 }
@@ -735,6 +785,99 @@ function PlaceDetailsModal({ place, onClose, onAskFollowUp }) {
             </button>
           </div>
         </div>
+      </article>
+    </div>
+  );
+}
+
+function ContextPickerModal({ currentSessionId, onSelect, onClose }) {
+  const [summaries, setSummaries] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    getSummaries()
+      .then((data) => {
+        // Filter out the current session (no point importing your own context)
+        const filtered = (data.summaries || []).filter(
+          (s) => s.session_id !== currentSessionId
+        );
+        setSummaries(filtered);
+      })
+      .catch(console.error)
+      .finally(() => setLoading(false));
+  }, [currentSessionId]);
+
+  const truncate = (text, max = 120) =>
+    text.length > max ? text.slice(0, max) + "…" : text;
+
+  return (
+    <div className="context-picker-overlay" onClick={onClose}>
+      <article
+        className="context-picker-modal"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="context-picker-header">
+          <h2>📋 Load past conversation context</h2>
+          <p>
+            Choose a past chat to inject its summary into this new
+            conversation. The AI will be aware of what you discussed before.
+          </p>
+          <button
+            type="button"
+            className="context-picker-close"
+            onClick={onClose}
+          >
+            ×
+          </button>
+        </div>
+
+        {loading ? (
+          <div className="context-picker-loading">Loading summaries…</div>
+        ) : summaries.length === 0 ? (
+          <div className="context-picker-empty">
+            <p>No saved summaries found.</p>
+            <p className="context-picker-hint">
+              Summaries are automatically generated after 10 messages in a
+              chat. Keep chatting to create one.
+            </p>
+          </div>
+        ) : (
+          <div className="context-picker-table-wrap">
+            <table className="context-picker-table">
+              <thead>
+                <tr>
+                  <th>Chat</th>
+                  <th>Summary</th>
+                  <th>Messages</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody>
+                {summaries.map((s) => (
+                  <tr key={s.session_id}>
+                    <td className="ctx-name">{s.display_name}</td>
+                    <td className="ctx-summary">{truncate(s.summary)}</td>
+                    <td className="ctx-count">{s.message_count}</td>
+                    <td className="ctx-action">
+                      <button
+                        type="button"
+                        className="ctx-use-btn"
+                        onClick={() =>
+                          onSelect({
+                            session_id: s.session_id,
+                            display_name: s.display_name,
+                          })
+                        }
+                      >
+                        Use
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
       </article>
     </div>
   );

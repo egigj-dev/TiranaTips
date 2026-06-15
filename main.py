@@ -3,6 +3,7 @@ main.py — FastAPI server: RAG + Memory (Qdrant + SQLite + OpenRouter)
 
 Ekzekuto: uvicorn main:app --reload
 """
+
 import os
 import json
 import asyncio
@@ -28,11 +29,12 @@ from qdrant_client.models import (
     Distance, VectorParams, SparseVector,
 )
 from database import (save_message, get_history, save_summary, get_summary,
-                       get_all_sessions, get_all_sessions_with_names,
+                       get_all_sessions, get_all_sessions_with_names, get_all_summaries,
                        rename_session, get_session_name,
                        save_feedback, get_feedback_stats,
                        get_user_preferences, save_user_preferences,
-                       delete_user_preferences, query_events, prune_events, DB_PATH)
+                       delete_user_preferences, query_events, prune_events, DB_PATH,
+                       save_place, unsave_place, get_saved_places, get_saved_slugs)
 import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
@@ -42,8 +44,13 @@ from qdrant_client.models import (
     SparseVectorParams, SparseIndexParams, PointStruct,
     Filter, FieldCondition, MatchValue, Range,
 )
+import hmac, hashlib, base64, json as _json, time, os, secrets
+from database import create_user, verify_user
 
 load_dotenv()
+
+AUTH_SECRET = os.getenv("AUTH_SECRET", secrets.token_hex(32)).encode()
+_TOKEN_TTL = 30 * 24 * 3600  # 30 days
 
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
@@ -632,6 +639,10 @@ class ChatRequest(BaseModel):
     # compatibility — pre-onboarding clients won't send this and we fall
     # back to un-personalized retrieval.
     user_id:    str | None = Field(default=None, pattern=USER_ID_PATTERN)
+    # When set, inject the summary from another session (the "context"
+    # session) into the system prompt, so the model has awareness of past
+    # conversations. Used by the "upload context" feature in the frontend.
+    context_session_id: str | None = Field(default=None, min_length=1, max_length=64)
 
     @field_validator("question", mode="before")
     @classmethod
@@ -1173,7 +1184,13 @@ async def chat_stream(request: Request, req: ChatRequest):
         context, sources, is_web = web_context, web_sources, True
 
     summary        = get_summary(req.session_id)
-    system_prompt  = _build_system_prompt(context, summary, is_web, user_prefs)
+    # Inject context from another session if provided
+    context_summary = ""
+    if req.context_session_id and req.context_session_id != req.session_id:
+        ctx = get_summary(req.context_session_id)
+        if ctx:
+            context_summary = f"\n\nCONTEXT FROM PAST CONVERSATION ({get_session_name(req.context_session_id)}):\n{ctx}"
+    system_prompt  = _build_system_prompt(context, summary + context_summary, is_web, user_prefs)
     messages_to_send = (
         [{"role": "system", "content": system_prompt}]
         + history
@@ -1327,6 +1344,44 @@ def _summarize_session(session_id: str, model: str):
 
 
 # ---------------------------------------------------------------------------
+# Registration token
+# ---------------------------------------------------------------------------
+
+def _make_token(user_id: str, username: str, display_name: str) -> str:
+    payload = {"uid": user_id, "un": username, "dn": display_name,
+               "exp": int(time.time()) + _TOKEN_TTL}
+    raw = base64.urlsafe_b64encode(json.dumps(payload).encode()).decode()
+    sig = hmac.new(AUTH_SECRET, raw.encode(), hashlib.sha256).hexdigest()
+    return f"{raw}.{sig}"
+ 
+ 
+def _verify_token(token: str) -> dict | None:
+    try:
+        raw, sig = token.rsplit(".", 1)
+        expected = hmac.new(AUTH_SECRET, raw.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(sig, expected):
+            return None
+        payload = json.loads(base64.urlsafe_b64decode(raw.encode()))
+        if payload.get("exp", 0) < time.time():
+            return None
+        return payload
+    except Exception:
+        return None
+ 
+ 
+class RegisterRequest(BaseModel):
+    username: str = Field(..., min_length=3, max_length=32)
+    password: str = Field(..., min_length=6, max_length=128)
+    display_name: str | None = Field(None, max_length=60)
+    language: str = "en"
+ 
+ 
+class LoginRequest(BaseModel):
+    username: str = Field(..., min_length=1, max_length=32)
+    password: str = Field(..., min_length=1, max_length=128)
+
+
+# ---------------------------------------------------------------------------
 # Endpoints
 # ---------------------------------------------------------------------------
 
@@ -1350,6 +1405,11 @@ def get_chat_summary(session_id: str):
 @app.get("/sessions")
 def list_sessions():
     return {"sessions": get_all_sessions_with_names()}
+
+@app.get("/summaries")
+def list_summaries():
+    """All sessions with their auto-generated summaries, for the context-picker modal."""
+    return {"summaries": get_all_summaries()}
 
 @app.patch("/sessions/{session_id}/rename")
 def rename_session_endpoint(session_id: str, req: RenameRequest):
@@ -1413,6 +1473,49 @@ def submit_feedback(request: Request, req: FeedbackRequest):
 @app.get("/feedback/stats")
 def feedback_stats():
     return get_feedback_stats()
+
+
+ 
+@app.post("/auth/register")
+@limiter.limit("10/minute")
+def auth_register(request: Request, req: RegisterRequest):
+    try:
+        user = create_user(req.username, req.password, req.display_name, req.language)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+    token = _make_token(user["user_id"], user["username"], user["display_name"])
+    # user_id is returned so the frontend keys preferences on the ACCOUNT —
+    # this is what makes personalization follow the login across devices.
+    return {"authenticated": True, "token": token, "user_id": user["user_id"],
+            "display_name": user["display_name"], "language": user["language"]}
+ 
+ 
+@app.post("/auth/login")
+@limiter.limit("20/minute")
+def auth_login(request: Request, req: LoginRequest):
+    user = verify_user(req.username, req.password)
+    if not user:
+        raise HTTPException(status_code=401, detail="Invalid username or password.")
+    token = _make_token(user["user_id"], user["username"], user["display_name"])
+    return {"authenticated": True, "token": token, "user_id": user["user_id"],
+            "display_name": user["display_name"], "language": user["language"]}
+ 
+ 
+@app.post("/auth/logout")
+def auth_logout(request: Request):
+    # Stateless tokens — nothing to invalidate server-side; the client drops it.
+    return {"authenticated": False}
+ 
+ 
+@app.get("/auth/me")
+def auth_me(request: Request):
+    auth = request.headers.get("authorization", "")
+    token = auth[7:] if auth.lower().startswith("bearer ") else auth
+    payload = _verify_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
+    return {"authenticated": True, "user_id": payload["uid"],
+            "username": payload["un"], "display_name": payload["dn"]}
 
 
 # ---------------------------------------------------------------------------
@@ -1799,68 +1902,6 @@ def list_events(request: Request, days: int = 30, category: str | None = None,
     return {"count": len(out), "events": out}
 
 
-# =============================================================================
-# Simple file-based authentication
-# =============================================================================
-# Users are stored in users.json (SHA-256 hashed passwords).
-# On successful login the server returns a session token (random UUID).
-# The token is stored server-side in _sessions and client-side in localStorage.
-# Every protected endpoint checks for a valid session token.
-
-import secrets
-
-_USERS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "users.json")
-_sessions: dict[str, dict] = {}  # token -> {"username", "display_name", "created"}
-
-
-def _load_users_list() -> list:
-    with open(_USERS_FILE, "r") as f:
-        return json.load(f)
-
-
-def _verify_credentials(username: str, password: str) -> dict | None:
-    pw_hash = hashlib.sha256(password.encode("utf-8")).hexdigest()
-    for u in _load_users_list():
-        if u["username"] == username and u["password_hash"] == pw_hash:
-            return {"username": u["username"], "display_name": u.get("display_name", u["username"])}
-    return None
-
-
-class LoginRequest(BaseModel):
-    username: str = Field(..., min_length=1, max_length=64)
-    password: str = Field(..., min_length=1, max_length=128)
-
-
-@app.post("/auth/login")
-def auth_login(req: LoginRequest):
-    user = _verify_credentials(req.username, req.password)
-    if not user:
-        raise HTTPException(status_code=401, detail="Invalid username or password.")
-    token = secrets.token_urlsafe(32)
-    _sessions[token] = {
-        "username": user["username"],
-        "display_name": user["display_name"],
-        "created": datetime.utcnow().isoformat(),
-    }
-    return {"authenticated": True, "token": token, "display_name": user["display_name"]}
-
-
-@app.post("/auth/logout")
-def auth_logout(req: Request):
-    token = req.headers.get("X-Session-Token", "")
-    _sessions.pop(token, None)
-    return {"authenticated": False}
-
-
-@app.get("/auth/session")
-def auth_session(req: Request):
-    token = req.headers.get("X-Session-Token", "")
-    session = _sessions.get(token)
-    if not session:
-        raise HTTPException(status_code=401, detail="Not authenticated.")
-    return {"authenticated": True, "username": session["username"], "display_name": session["display_name"]}
-
-
 def _is_onboarded(prefs: dict) -> bool:
     """
     A user counts as "onboarded" once they've made at least one meaningful
@@ -1875,3 +1916,61 @@ def _is_onboarded(prefs: dict) -> bool:
         prefs.get("price_tier"),
         prefs.get("interests"),
     ])
+
+def _require_user(request: Request) -> dict:
+    """Extract + validate the auth token, return its payload, or 401. Used by
+    endpoints that require login (saving is account-only)."""
+    auth = request.headers.get("authorization", "")
+    token = auth[7:] if auth.lower().startswith("bearer ") else auth
+    payload = _verify_token(token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Login required")
+    return payload
+ 
+ 
+class SaveRequest(BaseModel):
+    slug:    str          = Field(..., min_length=1, max_length=200)
+    payload: dict | None  = None
+ 
+ 
+@app.post("/saves")
+@limiter.limit("60/minute")
+def add_save(request: Request, req: SaveRequest):
+    user = _require_user(request)
+    created = save_place(user["uid"], req.slug, req.payload)
+    return {"saved": True, "created": created}
+ 
+ 
+@app.delete("/saves/{slug}")
+@limiter.limit("60/minute")
+def remove_save(request: Request, slug: str):
+    user = _require_user(request)
+    deleted = unsave_place(user["uid"], slug)
+    return {"saved": False, "deleted": deleted}
+ 
+ 
+@app.get("/saves")
+def list_saves(request: Request):
+    """The user's saved places, full details (joined to places table)."""
+    user = _require_user(request)
+    places = get_saved_places(user["uid"])
+    # Map to the same shape Explore/ForYou cards expect.
+    out = [
+        {
+            "slug": p["slug"], "name": p["name"], "category": p.get("category"),
+            "neighborhood": p.get("neighborhood"), "price_tier": p.get("price_tier"),
+            "lat": p.get("lat"), "lng": p.get("lon"),
+            "gps": ({"latitude": p.get("lat"), "longitude": p.get("lon")}
+                    if p.get("lat") is not None else None),
+        }
+        for p in places
+    ]
+    return {"count": len(out), "places": out}
+ 
+ 
+@app.get("/saves/slugs")
+def list_save_slugs(request: Request):
+    """Just the slugs the user has saved — lets the frontend mark saved cards
+    without fetching full details."""
+    user = _require_user(request)
+    return {"slugs": get_saved_slugs(user["uid"])}

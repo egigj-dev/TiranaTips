@@ -1,7 +1,9 @@
 import os
 import json
 import sqlite3
+import secrets
 from datetime import datetime
+import hashlib
 
 # Anchor the DB to a data/ subdir next to this file. In prod the code is baked
 # into the image (ephemeral), so the DB MUST live on a mounted volume or it gets
@@ -126,6 +128,39 @@ def init_db():
     c.execute("CREATE INDEX IF NOT EXISTS idx_places_category ON places(category)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_places_hood     ON places(neighborhood)")
 
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS users (
+            user_id       TEXT PRIMARY KEY,
+            username      TEXT UNIQUE NOT NULL,
+            password_hash TEXT NOT NULL,
+            salt          TEXT NOT NULL,
+            display_name  TEXT,
+            language      TEXT DEFAULT 'en',
+            created_at    TEXT NOT NULL
+        )
+    ''')
+
+    # Add language column if upgrading from old schema
+    try:
+        c.execute("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'en'")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
+    c.execute('''
+            CREATE TABLE IF NOT EXISTS saved_places (
+                user_id   TEXT NOT NULL,
+                slug      TEXT NOT NULL,
+                saved_at  TEXT NOT NULL,
+                payload   TEXT,
+                PRIMARY KEY (user_id, slug)
+            )
+        ''')
+    
+    try:
+        c.execute("ALTER TABLE saved_places ADD COLUMN payload TEXT")
+    except sqlite3.OperationalError:
+        pass  # column already exists
+
     conn.commit()
     conn.close()
 
@@ -177,6 +212,31 @@ def get_all_sessions() -> list[str]:
     ).fetchall()
     conn.close()
     return [r[0] for r in rows]
+
+
+def get_all_summaries() -> list[dict]:
+    """Return all sessions that have summaries, with display names and message counts.
+    Each entry: {session_id, display_name, summary, message_count, updated_at}"""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """SELECT s.session_id, s.summary, s.updated_at,
+                  COALESCE(n.display_name, s.session_id) AS display_name,
+                  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.session_id) AS message_count
+           FROM summaries s
+           LEFT JOIN session_names n ON n.session_id = s.session_id
+           ORDER BY s.updated_at DESC"""
+    ).fetchall()
+    conn.close()
+    return [
+        {
+            "session_id": r[0],
+            "summary": r[1],
+            "updated_at": r[2],
+            "display_name": r[3],
+            "message_count": r[4],
+        }
+        for r in rows
+    ]
 
 
 def rename_session(session_id: str, display_name: str):
@@ -601,6 +661,142 @@ def query_places(
         d["osm_tags"] = json.loads(d["osm_tags"]) if d.get("osm_tags") else {}
         out.append(d)
     return out
+
+def _hash_password(password: str, salt: str) -> str:
+    """scrypt KDF → hex digest. Salt is hex. scrypt is memory-hard — a real
+    password hash, unlike the plain SHA-256 the old client-side auth used."""
+    return hashlib.scrypt(
+        password.encode(), salt=bytes.fromhex(salt),
+        n=16384, r=8, p=1, dklen=32,
+    ).hex()
+ 
+ 
+def create_user(username: str, password: str, display_name: str | None = None, language: str = "en") -> dict:
+    """Register a new account. Returns {user_id, username, display_name, language}.
+    Raises ValueError if the username is taken. The user_id is also the
+    user_preferences key, so preferences follow the account."""
+    username = username.strip()
+    user_id = "u_" + secrets.token_hex(12)
+    salt = secrets.token_hex(16)
+    pw_hash = _hash_password(password, salt)
+    now = datetime.utcnow().isoformat()
+
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            """INSERT INTO users (user_id, username, password_hash, salt,
+                                  display_name, language, created_at)
+               VALUES (?,?,?,?,?,?,?)""",
+            (user_id, username, pw_hash, salt, display_name or username, language, now),
+        )
+        conn.commit()
+    except sqlite3.IntegrityError:
+        conn.close()
+        raise ValueError("Username already taken")
+    conn.close()
+    return {"user_id": user_id, "username": username,
+            "display_name": display_name or username, "language": language}
+ 
+ 
+def verify_user(username: str, password: str) -> dict | None:
+    """Check credentials. Returns {user_id, username, display_name, language} or None."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        "SELECT * FROM users WHERE LOWER(username) = LOWER(?)", (username.strip(),)
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    if _hash_password(password, row["salt"]) != row["password_hash"]:
+        return None
+    return {"user_id": row["user_id"], "username": row["username"],
+            "display_name": row["display_name"],
+            "language": row["language"] if row["language"] else "en"}
+
+
+def save_place(user_id: str, slug: str, payload: dict | None = None) -> bool:
+    """Save a place for a user. Idempotent — re-saving is a no-op (returns
+    False). `payload` carries self-describing card data for EXTERNAL places
+    (Google results, ref 'g:<place_id>') that aren't in the owned places table;
+    owned saves pass None and rely on the join in get_saved_places."""
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        conn.execute(
+            "INSERT INTO saved_places (user_id, slug, saved_at, payload) VALUES (?,?,?,?)",
+            (user_id, slug, datetime.utcnow().isoformat(),
+             json.dumps(payload) if payload else None),
+        )
+        conn.commit()
+        created = True
+    except sqlite3.IntegrityError:
+        created = False  # already saved
+    conn.close()
+    return created
+ 
+ 
+def unsave_place(user_id: str, slug: str) -> bool:
+    """Remove a save. Returns True if a row was deleted."""
+    conn = sqlite3.connect(DB_PATH)
+    cur = conn.execute(
+        "DELETE FROM saved_places WHERE user_id=? AND slug=?", (user_id, slug)
+    )
+    conn.commit()
+    deleted = cur.rowcount > 0
+    conn.close()
+    return deleted
+ 
+ 
+def get_saved_places(user_id: str) -> list[dict]:
+    """The user's saved places, newest first. Owned saves are joined to the
+    places table; external saves (payload set, no matching places row) describe
+    themselves from the stored JSON. Both return the same row shape."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT p.*, s.slug AS ref, s.saved_at AS saved_at, s.payload AS payload
+             FROM saved_places s
+             LEFT JOIN places p ON p.slug = s.slug
+            WHERE s.user_id = ?
+            ORDER BY s.saved_at DESC""",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["slug"] = d.pop("ref")  # the saved reference (owned slug or 'g:<id>')
+        if d.get("name") is not None:           # owned: join matched
+            d["interest_tags"] = json.loads(d["interest_tags"]) if d.get("interest_tags") else []
+            d["osm_tags"] = json.loads(d["osm_tags"]) if d.get("osm_tags") else {}
+        elif d.get("payload"):                  # external: self-describe from JSON
+            ext = json.loads(d["payload"])
+            gps = ext.get("gps") or {}
+            d.update({
+                "name": ext.get("name"),
+                "category": ext.get("type"),
+                "neighborhood": None,
+                "price_tier": None,
+                "lat": gps.get("latitude"),
+                "lon": gps.get("longitude"),
+                "address": ext.get("address"),
+                "maps_url": ext.get("maps_url"),
+                "rating": ext.get("rating"),
+                "interest_tags": [],
+                "osm_tags": {},
+            })
+        out.append(d)
+    return out
+ 
+ 
+def get_saved_slugs(user_id: str) -> list[str]:
+    """Just the slugs — for the frontend to mark which cards are already saved."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        "SELECT slug FROM saved_places WHERE user_id=?", (user_id,)
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 
 # Auto-inicializim kur importohet moduli

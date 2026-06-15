@@ -1,7 +1,12 @@
 import { NavLink, Link } from "react-router-dom";
 import "./navigation.css";
+import { getSessionToken } from "../../lib/api";
 
-function Navigation({ isAuthenticated, onLogout, displayName }) {
+function Navigation({ isAuthenticated, onLogout, displayName, onOpenAuth }) {
+  // Token is the source of truth. App's isAuthenticated can lag (login may
+  // happen on another page), so fall back to the token to stay accurate.
+  const loggedIn = isAuthenticated || !!getSessionToken();
+
   const navLinks = [
     { label: "Today", path: "/" },
     { label: "Explore", path: "/explore" },
@@ -34,18 +39,19 @@ function Navigation({ isAuthenticated, onLogout, displayName }) {
           ))}
         </nav>
 
-        {isAuthenticated ? (
+        {loggedIn ? (
           <div className="nav-auth">
-            <span className="nav-username">{displayName}</span>
+            {displayName && <span className="nav-username">{displayName}</span>}
             <button className="nav-logout-btn" onClick={onLogout}>
               Logout
             </button>
           </div>
         ) : (
-          <Link to="/" className="nav-action">
-            <span className="nav-action-icon">▣</span>
-            Plan my day
-          </Link>
+          <div className="nav-auth">
+            <button className="nav-login-btn" onClick={onOpenAuth}>
+              Log in
+            </button>
+          </div>
         )}
       </div>
     </header>
