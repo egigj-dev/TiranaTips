@@ -9,6 +9,7 @@ import ForYou from "./components/ForYou/ForYou";
 import Login from "./components/Authentication/Login";
 import { checkSession, logout as apiLogout } from "./lib/api";
 import Explore from "./components/Explore/Explore";
+import ScrollToTop from "./components/ScrollToTop";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(null);
@@ -39,7 +40,7 @@ function App() {
     return (
       <>
         <Navigation isAuthenticated={false} onLogout={handleLogout} displayName="" />
-        <Login onClose={() => {}} onLogin={handleLogin} />
+        <Login onClose={() => { }} onLogin={handleLogin} />
         <Footer />
       </>
     );
@@ -47,6 +48,8 @@ function App() {
 
   return (
     <>
+      <ScrollToTop />
+
       <Navigation
         isAuthenticated={true}
         onLogout={handleLogout}

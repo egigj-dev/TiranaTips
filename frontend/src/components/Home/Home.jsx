@@ -4,10 +4,6 @@ import {
   CalendarDays,
   CloudSun,
   Thermometer,
-  Users,
-  BriefcaseBusiness,
-  GraduationCap,
-  LaptopMinimal,
   Droplets,
   PlaneTakeoff,
   PlaneLanding,
@@ -15,10 +11,10 @@ import {
   MessageCircle,
   Compass,
   Leaf,
-  Building2,
   Music,
   Construction,
   BadgePercent,
+  Landmark,
 } from "lucide-react";
 
 import { getCityNotes } from "../../lib/api";
@@ -75,14 +71,6 @@ function Home() {
 
   const greeting =
     hour < 12 ? "Good morning," : hour < 18 ? "Good afternoon," : "Good evening,";
-
-  const audienceItems = [
-    { icon: Users, label: "For locals" },
-    { icon: BriefcaseBusiness, label: "Visitors" },
-    { icon: GraduationCap, label: "Students" },
-    { icon: LaptopMinimal, label: "Digital nomads" },
-    { icon: Building2, label: "Business / Investor" },
-  ];
 
   const smartNotes = [
     {
@@ -214,6 +202,7 @@ function Home() {
       meta: "Nomads · Students · Expats",
     },
   ];
+
   return (
     <main className="home-page">
       <section className="home-hero">
@@ -247,21 +236,6 @@ function Home() {
               </span>
               Explore the city
             </a>
-          </div>
-
-          <div className="hero-audience">
-            {audienceItems.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <span key={item.label}>
-                  <i>
-                    <Icon size={14} strokeWidth={2.3} />
-                  </i>
-                  {item.label}
-                </span>
-              );
-            })}
           </div>
         </div>
 
@@ -421,6 +395,38 @@ function Home() {
         </div>
       </section>
 
+      <section className="tirana-glance-section">
+        <div className="tirana-glance-icon">
+          <Landmark size={24} strokeWidth={2.2} />
+        </div>
+
+        <div className="tirana-glance-content">
+          <span>Tirana at a glance</span>
+
+          <h2>A city with many layers.</h2>
+
+          <div className="tirana-glance-text-grid">
+            <p>
+              Tirana’s area has been inhabited since ancient times, with archaeological
+              traces from Illyrian, Roman, and Byzantine periods. These early layers
+              give the city a longer history than its modern capital identity.
+            </p>
+
+            <p>
+              Tirana began to take shape as an urban center in the early 17th century,
+              when Sulejman Pasha Bargjini founded key landmarks such as a mosque, a
+              bakery, and a hammam, helping define the city’s early core.
+            </p>
+
+            <p>
+              In 1920, Tirana became the capital of Albania. Today, it blends historic
+              neighborhoods, communist-era architecture, colorful facades, café
+              culture, and a young creative rhythm.
+            </p>
+          </div>
+        </div>
+      </section>
+
       <section className="ask-preview-section">
         <div className="ask-preview-left">
           <span className="ask-preview-pill">AI local assistant</span>
@@ -456,7 +462,6 @@ function Home() {
 
       <section className="explore-preview-section">
         <div className="explore-preview-intro">
-
           <h2>Start exploring Tirana</h2>
 
           <p>
@@ -486,7 +491,6 @@ function Home() {
 
       <section className="global-preview-section">
         <div className="global-preview-header">
-
           <div>
             <h2>Tirana, seen globally.</h2>
             <p>
@@ -494,7 +498,6 @@ function Home() {
               shaping how the world sees Tirana.
             </p>
           </div>
-
         </div>
 
         <div className="global-preview-grid">
