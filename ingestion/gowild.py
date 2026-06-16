@@ -6,7 +6,7 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from base import Event, url_id, parse_date
+from ingestion.base import Event, url_id, parse_date
 
 BASE_URL = "https://gowild.al"
 URL = "https://gowild.al/en"

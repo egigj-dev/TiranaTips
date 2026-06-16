@@ -5,6 +5,7 @@ Ekzekuto: uvicorn main:app --reload
 """
 
 import os
+import sys
 import json
 import asyncio
 import requests
@@ -34,7 +35,8 @@ from database import (save_message, get_history, save_summary, get_summary,
                        save_feedback, get_feedback_stats,
                        get_user_preferences, save_user_preferences,
                        delete_user_preferences, query_events, prune_events, DB_PATH,
-                       save_place, unsave_place, get_saved_places, get_saved_slugs)
+                       save_place, unsave_place, get_saved_places, get_saved_slugs,
+                       get_also_saved)
 import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
@@ -42,7 +44,7 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from qdrant_client.models import (
     SparseVectorParams, SparseIndexParams, PointStruct,
-    Filter, FieldCondition, MatchValue, Range,
+    Filter, FieldCondition, MatchValue, MatchAny, Range,
 )
 import hmac, hashlib, base64, json as _json, time, os, secrets
 from database import create_user, verify_user
@@ -131,6 +133,13 @@ PREFERENCE_INTERESTS: list[str] = [
     "food", "coffee", "nightlife", "art", "theatre", "sports",
     "history", "nature", "shopping", "photography", "live_music",
     "family", "study_work_cafes",
+]
+
+# Canonical Tirana neighborhood list, matching places_enrich.py boxes and the
+# Explore page dropdown. Used to validate neighborhood preferences on save.
+PREFERENCE_NEIGHBORHOODS: list[str] = [
+    "Blloku", "Tirana e Re", "21 Dhjetori", "Qendra",
+    "Myslym Shyri", "Pazari i Ri", "Komuna e Parisit", "Liqeni / Grand Park",
 ]
 
 # Pattern used by all user-scoped endpoints to validate user_id format.
@@ -445,6 +454,17 @@ async def lifespan(app: FastAPI):
         replace_existing=True,
         misfire_grace_time=300,
     )
+    # Events ingestion — scrapes 6 sources (TEA, Vivere, GoWild, EnterEvents,
+    # Kookooli, AlmanArt), deduplicates, and upserts into SQLite. Runs every
+    # 6 hours so events stay reasonably current without hammering the sources.
+    scheduler.add_job(
+        run_events_ingestion_job,
+        "interval",
+        hours=6,
+        id="events_ingest",
+        replace_existing=True,
+        misfire_grace_time=600,
+    )
     # Smart Local Notes data (weather / exchange / TIA flights). First run
     # immediately so the cache is warm shortly after boot; the endpoint
     # serves nulls until then and the frontend shows placeholders.
@@ -622,6 +642,34 @@ async def run_ingestion_job():
 
 
 # ---------------------------------------------------------------------------
+# Events ingestion — runs the 6 scrapers and upserts into SQLite.
+# ---------------------------------------------------------------------------
+
+def _sync_events_ingestion():
+    """Run all event scrapers, deduplicate, upsert, and prune stale rows."""
+    import time as _time
+    t0 = _time.time()
+    print("[EventsIngest] Duke filluar scraping...")
+    try:
+        # Import the ingestion.run module — it wires up all 6 scrapers
+        # and calls dedup_canonicalize → upsert_events → prune_events.
+        from ingestion.run import run_all as _events_run_all
+        summary = _events_run_all()
+        elapsed = _time.time() - t0
+        total   = sum(v for v in summary.get("per_source", {}).values() if isinstance(v, int) and v > 0)
+        print(f"[EventsIngest] OK — {summary['canonical']} canonical events "
+              f"nga {total} te skrapuara, {elapsed:.1f}s")
+    except Exception as e:
+        print(f"[EventsIngest] GABIM: {e}", file=sys.stderr)
+        import traceback
+        traceback.print_exc()
+
+
+async def run_events_ingestion_job():
+    await asyncio.to_thread(_sync_events_ingestion)
+
+
+# ---------------------------------------------------------------------------
 # Request schemas
 # ---------------------------------------------------------------------------
 
@@ -712,6 +760,7 @@ class PreferencesRequest(BaseModel):
     currency:    str       | None = None
     price_tier:  str       | None = None
     interests:   list[str] | None = None
+    neighborhoods: list[str] | None = None
     location_ok: bool      | None = None
 
     @field_validator("mode")
@@ -747,6 +796,15 @@ class PreferencesRequest(BaseModel):
         if bad:
             raise ValueError(f"unknown interests: {bad}. Allowed: {PREFERENCE_INTERESTS}")
         return list(dict.fromkeys(v))  # de-dupe while preserving order
+
+    @field_validator("neighborhoods")
+    @classmethod
+    def _neighborhoods_in_set(cls, v):
+        if v is None: return v
+        bad = [x for x in v if x not in PREFERENCE_NEIGHBORHOODS]
+        if bad:
+            raise ValueError(f"unknown neighborhoods: {bad}. Allowed: {PREFERENCE_NEIGHBORHOODS}")
+        return list(dict.fromkeys(v))
 
 
 # ---------------------------------------------------------------------------
@@ -1390,6 +1448,12 @@ def get_city_notes_endpoint():
     """Cached live data for the Home Smart Local Notes (see city_notes.py)."""
     return city_notes.get_notes()
 
+
+@app.get("/city/news")
+def get_city_news_endpoint():
+    """Scraped headlines from 3 sources (Tirana Times, Exit.al, ADN)."""
+    return city_notes.get_news()
+
 @app.get("/health")
 def health():
     return {"status": "ok", "model": CHOSEN_MODEL}
@@ -1539,6 +1603,7 @@ def preferences_options():
         "price_tiers": PREFERENCE_PRICE_TIERS,
         "currencies":  PREFERENCE_CURRENCIES,
         "interests":   PREFERENCE_INTERESTS,
+        "neighborhoods": PREFERENCE_NEIGHBORHOODS,
     }
 
 
@@ -1581,6 +1646,7 @@ def write_preferences(
         currency=req.currency,
         price_tier=req.price_tier,
         interests=req.interests,
+        neighborhoods=req.neighborhoods,
         location_ok=req.location_ok,
     )
     return {**prefs, "onboarded": _is_onboarded(prefs)}
@@ -1800,6 +1866,11 @@ class PlaceBrowseRequest(BaseModel):
     # match the rich Google-search path. Cached per slug, so cheap on repeat
     # views. Off → raw OSM rows (faster, zero Google cost).
     enrich:       bool = Field(True)
+    # Personalization: when set, results are re-ranked to boost places whose
+    # interest_tags overlap with the user's stored interests. The explicit
+    # filters (category/neighborhood/max_price) still apply as must — this
+    # only affects ordering within the filtered set.
+    user_id:      str | None = Field(None, pattern=USER_ID_PATTERN)
 
 
 @app.post("/places/browse")
@@ -1822,7 +1893,30 @@ def browse_places(request: Request, req: PlaceBrowseRequest):
         # price_tier <= max_price; NULL tiers are excluded by Range (unknown
         # price can't be asserted cheap), which is the safe default.
         must.append(FieldCondition(key="price_tier", range=Range(lte=req.max_price)))
-    qfilter = Filter(must=must) if must else None
+
+    # Personalization: when user_id is provided, load their interests and add
+    # a `should` filter so places matching their tastes rank higher within the
+    # filtered set. This is purely a ranking boost — the must filters still
+    # constrain the result set.
+    should = []
+    if req.user_id:
+        prefs = get_user_preferences(req.user_id)
+        user_interests = (prefs or {}).get("interests") or []
+        for interest in user_interests:
+            should.append(FieldCondition(
+                key="interest_tags",
+                match=MatchValue(value=interest),
+            ))
+        # If user has preferred neighborhoods and no specific neighborhood was
+        # selected in the dropdown, auto-filter to preferred neighborhoods.
+        user_neighborhoods = (prefs or {}).get("neighborhoods") or []
+        if user_neighborhoods and not req.neighborhood:
+            must.append(FieldCondition(
+                key="neighborhood",
+                match=MatchAny(any=user_neighborhoods),
+            ))
+
+    qfilter = Filter(must=must, should=should) if (must or should) else None
 
     # Empty query → a neutral term so the vector search still returns the
     # filtered set rather than nothing; the filter does the real work then.
@@ -1871,6 +1965,103 @@ def browse_places(request: Request, req: PlaceBrowseRequest):
     return {"count": len(places), "places": places}
 
 
+class RecommendedRequest(BaseModel):
+    user_id: str = Field(..., pattern=USER_ID_PATTERN)
+    limit: int = Field(6, ge=1, le=20)
+
+
+@app.post("/places/recommended")
+@limiter.limit("60/minute")
+def recommended_places(request: Request, req: RecommendedRequest):
+    """Personalized place recommendations based on the user's interest tags.
+
+    Reads the user's stored interests and does a Qdrant search with a `should`
+    filter on interest_tags — any place whose tags overlap with the user's
+    interests gets ranked. This is the "Places you'll love" row in the ForYou
+    page.
+
+    Falls back gracefully: returns the user's interests even if no places match,
+    so the frontend can show a meaningful empty state.
+    """
+    prefs = get_user_preferences(req.user_id)
+    user_interests = (prefs or {}).get("interests") or []
+
+    if not user_interests:
+        return {"count": 0, "places": [], "interests": [], "note": "no interests set"}
+
+    # Build a `should` filter: match places whose interest_tags overlap any
+    # of the user's interests. Without explicit `must`, Qdrant returns ALL
+    # points if the `should` set is empty, but we never reach here without
+    # interests so that's safe. A point matches `should` if ANY of its
+    # interest_tags values equal one of the user's interests.
+    should = [
+        FieldCondition(
+            key="interest_tags",
+            match=MatchValue(value=interest),
+        )
+        for interest in user_interests
+    ]
+    qfilter = Filter(should=should) if should else None
+
+    # Neutral query text so vector similarity ranks within the filtered set
+    # rather than returning random results.
+    query_text = " ".join(user_interests)
+    dense_vec = embeddings.embed_query(query_text)
+    sparse_emb = list(sparse_model.query_embed(query_text))[0]
+    sparse_vec = SparseVector(
+        indices=sparse_emb.indices.tolist(),
+        values=sparse_emb.values.tolist(),
+    )
+
+    try:
+        dense_results = qdrant.query_points(
+            collection_name=PLACES_COLLECTION, query=dense_vec, using="dense",
+            query_filter=qfilter, limit=req.limit, with_payload=True)
+        sparse_results = qdrant.query_points(
+            collection_name=PLACES_COLLECTION, query=sparse_vec, using="sparse",
+            query_filter=qfilter, limit=req.limit, with_payload=True)
+    except Exception as exc:
+        print(f"[Recommended] query failed: {exc}")
+        return {"count": 0, "places": [], "interests": user_interests,
+                "note": "places index unavailable"}
+
+    fused = _rrf(dense_results, sparse_results)[:req.limit]
+    places = [
+        {
+            "slug":          h.payload.get("slug"),
+            "name":          h.payload.get("name"),
+            "category":      h.payload.get("category"),
+            "neighborhood":  h.payload.get("neighborhood"),
+            "price_tier":    h.payload.get("price_tier"),
+            "interest_tags": h.payload.get("interest_tags") or [],
+            "gps": ({"latitude": h.payload.get("lat"), "longitude": h.payload.get("lon")}
+                    if h.payload.get("lat") is not None else None),
+        }
+        for h in fused
+    ]
+
+    return {
+        "count": len(places),
+        "places": places,
+        "interests": user_interests,
+    }
+
+
+class AlsoSavedRequest(BaseModel):
+    slug: str = Field(..., max_length=120)
+    limit: int = Field(4, ge=1, le=12)
+
+
+@app.post("/places/also-saved")
+@limiter.limit("60/minute")
+def also_saved(request: Request, req: AlsoSavedRequest):
+    """Collaborative 'people also saved' — given a place slug, return other
+    places that users who saved this one also saved. Uses co-occurrence
+    frequency (simple, no matrix factorization needed for this scale)."""
+    results = get_also_saved(req.slug, req.limit)
+    return {"count": len(results), "places": results}
+
+
 @app.get("/events")
 @limiter.limit("60/minute")
 def list_events(request: Request, days: int = 30, category: str | None = None,
@@ -1915,6 +2106,7 @@ def _is_onboarded(prefs: dict) -> bool:
         prefs.get("currency"),
         prefs.get("price_tier"),
         prefs.get("interests"),
+        prefs.get("neighborhoods"),
     ])
 
 def _require_user(request: Request) -> dict:

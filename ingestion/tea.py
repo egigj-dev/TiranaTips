@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import requests
 
-from base import Event
+from ingestion.base import Event
 
 TEA_BASE = "https://api.tv4.niv.al/api/v1/public/content-groups/all-events"
 

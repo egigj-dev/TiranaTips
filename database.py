@@ -62,11 +62,17 @@ def init_db():
             currency    TEXT,
             price_tier  TEXT,
             interests   TEXT,
+            neighborhoods TEXT,             -- JSON list of preferred neighborhood names
             location_ok INTEGER,
             created_at  TEXT NOT NULL,
             updated_at  TEXT NOT NULL
         )
     """)
+    # Migration: add neighborhoods column if it doesn't exist yet (safe re-run).
+    try:
+        c.execute("ALTER TABLE user_preferences ADD COLUMN neighborhoods TEXT")
+    except Exception:
+        pass  # Column already exists
     # events: structured row-per-event store, populated by events_ingestion.py.
     # UNIQUE(source, external_id) lets us re-run scrapers idempotently — the same
     # event from the same source upserts in place rather than duplicating.
@@ -368,13 +374,15 @@ def get_user_preferences(user_id: str) -> dict | None:
     d = dict(row)
     # interests is stored as a JSON string; location_ok as 0/1/NULL.
     d["interests"] = json.loads(d["interests"]) if d["interests"] else []
+    d["neighborhoods"] = json.loads(d["neighborhoods"]) if d.get("neighborhoods") else []
     d["location_ok"] = None if d["location_ok"] is None else bool(d["location_ok"])
     return d
 
 
 def save_user_preferences(
     user_id: str,
-    mode=None, currency=None, price_tier=None, interests=None, location_ok=None,
+    mode=None, currency=None, price_tier=None, interests=None,
+    neighborhoods=None, location_ok=None,
 ) -> dict:
     """
     Upsert with PARTIAL-update semantics, matching the API contract:
@@ -388,34 +396,37 @@ def save_user_preferences(
 
     merged = existing or {
         "mode": None, "currency": None, "price_tier": None,
-        "interests": [], "location_ok": None, "created_at": now,
+        "interests": [], "neighborhoods": [], "location_ok": None, "created_at": now,
     }
 
     # None preserves; anything else (including ""/[]) overwrites.
-    if mode        is not None: merged["mode"]        = mode
-    if currency    is not None: merged["currency"]    = currency
-    if price_tier  is not None: merged["price_tier"]  = price_tier
-    if interests   is not None: merged["interests"]   = interests
-    if location_ok is not None: merged["location_ok"] = location_ok
+    if mode          is not None: merged["mode"]          = mode
+    if currency      is not None: merged["currency"]      = currency
+    if price_tier    is not None: merged["price_tier"]    = price_tier
+    if interests     is not None: merged["interests"]     = interests
+    if neighborhoods is not None: merged["neighborhoods"] = neighborhoods
+    if location_ok   is not None: merged["location_ok"]   = location_ok
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute(
         """
         INSERT INTO user_preferences
-            (user_id, mode, currency, price_tier, interests, location_ok,
-             created_at, updated_at)
-        VALUES (?,?,?,?,?,?,?,?)
+            (user_id, mode, currency, price_tier, interests, neighborhoods,
+             location_ok, created_at, updated_at)
+        VALUES (?,?,?,?,?,?,?,?,?)
         ON CONFLICT(user_id) DO UPDATE SET
             mode=excluded.mode,
             currency=excluded.currency,
             price_tier=excluded.price_tier,
             interests=excluded.interests,
+            neighborhoods=excluded.neighborhoods,
             location_ok=excluded.location_ok,
             updated_at=excluded.updated_at
         """,
         (
             user_id, merged["mode"], merged["currency"], merged["price_tier"],
             json.dumps(merged["interests"]),
+            json.dumps(merged["neighborhoods"]),
             None if merged["location_ok"] is None else int(merged["location_ok"]),
             merged.get("created_at", now), now,
         ),
@@ -562,6 +573,9 @@ def prune_events(grace_days: int = 3) -> int:
     conn.commit()
     conn.close()
     return deleted
+
+
+def upsert_places(rows: list[dict]) -> tuple[int, int]:
     """Upsert OSM place rows. Returns (inserted, updated).
 
     Each row needs at minimum: slug, osm_type, osm_id, name. The
@@ -797,6 +811,45 @@ def get_saved_slugs(user_id: str) -> list[str]:
     ).fetchall()
     conn.close()
     return [r[0] for r in rows]
+
+
+def get_also_saved(slug: str, limit: int = 4) -> list[dict]:
+    """Collaborative 'people also saved' — find other places commonly saved by
+    the same users who saved this slug. Orders by co-occurrence frequency.
+
+    The logic: find all users who saved `slug`, then find every OTHER place
+    those users also saved. GROUP BY slug, COUNT how many different users
+    co-saved each one, order descending. This is the simplest collaborative
+    filter — no matrix factorization, no embeddings — and works well when the
+    interaction graph is sparse but locally dense (which saved-places is).
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """SELECT p.*, s2.slug AS ref, COUNT(*) AS co_count
+             FROM saved_places s1
+             JOIN saved_places s2 ON s1.user_id = s2.user_id
+                                  AND s2.slug != s1.slug
+             LEFT JOIN places p ON p.slug = s2.slug
+            WHERE s1.slug = ?
+         GROUP BY s2.slug
+         ORDER BY co_count DESC, s2.slug
+            LIMIT ?""",
+        (slug, limit),
+    ).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["slug"] = d.pop("ref")            # the recommended slug
+        d["co_save_count"] = d.pop("co_count")  # how many users co-saved it
+        if d.get("name") is not None:
+            d["interest_tags"] = json.loads(d["interest_tags"]) if d.get("interest_tags") else []
+        else:
+            # External place (no join match) — skip; we can't recommend it
+            continue
+        out.append(d)
+    return out
 
 
 # Auto-inicializim kur importohet moduli

@@ -14,7 +14,7 @@ from urllib.parse import urljoin
 import requests
 from bs4 import BeautifulSoup
 
-from base import Event, url_id, parse_date
+from ingestion.base import Event, url_id, parse_date
 
 URL = "https://www.almanart.al/aktivitetet-javore/"
 HEADERS = {"User-Agent": "Mozilla/5.0"}

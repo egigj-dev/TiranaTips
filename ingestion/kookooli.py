@@ -12,7 +12,7 @@ import re
 
 from playwright.async_api import async_playwright
 
-from base import Event, url_id, parse_date
+from ingestion.base import Event, url_id, parse_date
 
 BASE = "https://kookooli.com"
 _DATE_RE = re.compile(r"\d{1,2}\s+\w+\s+\d{4}")

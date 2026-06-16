@@ -236,6 +236,13 @@ export const browsePlaces = (params) =>
     method: "POST",
     body: JSON.stringify(params),
   });
+
+/** Personalized recommendations for a logged-in user. Returns {count, places, interests}. */
+export const getRecommendedPlaces = (userId, limit = 6) =>
+  request("/places/recommended", {
+    method: "POST",
+    body: JSON.stringify({ user_id: userId, limit }),
+  });
 // ---------------------------------------------------------------------------
 // City notes — cached live data for the Home "Smart Local Notes" cards.
 // Shape: { weather, exchange, departures, arrivals } — any section can be
@@ -243,6 +250,8 @@ export const browsePlaces = (params) =>
 // ---------------------------------------------------------------------------
 
 export const getCityNotes = () => request("/city/notes");
+
+export const getNews = () => request("/city/news");
 
 /** Fetch summaries for all sessions — used by the context-picker modal. */
 export const getSummaries = () => request("/summaries");
@@ -309,3 +318,11 @@ export const getSavedPlaces = () =>
  
 export const getSavedSlugs = () =>
   request("/saves/slugs", { headers: authHeaders() });
+
+/** Collaborative recommendations: places that users who saved `slug` also saved.
+ * Returns {count, places: [{slug, name, category, neighborhood, co_save_count, ...}]} */
+export const getAlsoSaved = (slug, limit = 4) =>
+  request("/places/also-saved", {
+    method: "POST",
+    body: JSON.stringify({ slug, limit }),
+  });

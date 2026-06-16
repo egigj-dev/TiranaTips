@@ -9,7 +9,7 @@ from __future__ import annotations
 import requests
 from bs4 import BeautifulSoup
 
-from base import Event, url_id, parse_date
+from ingestion.base import Event, url_id, parse_date
 
 BASE = "https://enterevents.al"
 TIRANA_KEYWORDS = ("tirana", "tirane", "tiranë")

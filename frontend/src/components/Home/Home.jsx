@@ -21,7 +21,7 @@ import {
   Phone,
 } from "lucide-react";
 
-import { getCityNotes } from "../../lib/api";
+import { getCityNotes, getNews } from "../../lib/api";
 
 import tiranaHeroImage from "../../assets/home.png";
 import exchangeNoteImg from "../../assets/home/exchange-note.png";
@@ -29,15 +29,24 @@ import airportNoteImg from "../../assets/home/airport-note.png";
 
 function Home() {
   const [notes, setNotes] = useState(null);
+  const [news, setNews] = useState([]);
 
   useEffect(() => {
     const loadCityNotes = () => {
       getCityNotes().then(setNotes).catch(console.error);
     };
 
-    loadCityNotes();
+    const loadNews = () => {
+      getNews().then(setNews).catch(console.error);
+    };
 
-    const interval = setInterval(loadCityNotes, 5 * 60 * 1000);
+    loadCityNotes();
+    loadNews();
+
+    const interval = setInterval(() => {
+      loadCityNotes();
+      loadNews();
+    }, 5 * 60 * 1000);
 
     return () => clearInterval(interval);
   }, []);
@@ -360,7 +369,7 @@ function Home() {
         </div>
       </section>
 
-      <section className="right-now-section">
+      {/* <section className="right-now-section">
         <div className="section-heading-row">
           <div>
             <h2>Right now in Tirana</h2>
@@ -395,6 +404,62 @@ function Home() {
               </article>
             );
           })}
+        </div>
+      </section> */}
+
+      <section className="news-section">
+        <div className="section-heading-row">
+          <div>
+            <h2>News in Albania</h2>
+            <p>Headlines from local English-language sources</p>
+          </div>
+
+          <a href="https://www.tiranatimes.com/" target="_blank" rel="noreferrer">
+            See all news →
+          </a>
+        </div>
+
+        <div className="news-scroll-container">
+          <div className="news-scroll-track">
+            {news.length === 0 && (
+              <p className="news-empty">Loading headlines…</p>
+            )}
+
+            {news.map((item, i) => {
+              const sourceName = {
+                tiranatimes: "Tirana Times",
+                exit: "Exit.al",
+                adn: "Albanian Daily News",
+              }[item.source] || item.source;
+
+              return (
+                <a
+                  className="news-card"
+                  href={item.url}
+                  target="_blank"
+                  rel="noreferrer"
+                  key={`${item.source}-${i}`}
+                >
+                  {item.image_url && (
+                    <div className="news-card-img">
+                      <img
+                        src={item.image_url}
+                        alt={item.title}
+                        loading="lazy"
+                        onError={(e) => {
+                          e.currentTarget.style.display = "none";
+                        }}
+                      />
+                    </div>
+                  )}
+                  <div className="news-card-body">
+                    <span className="news-card-source">{sourceName}</span>
+                    <h3>{item.title}</h3>
+                  </div>
+                </a>
+              );
+            })}
+          </div>
         </div>
       </section>
 

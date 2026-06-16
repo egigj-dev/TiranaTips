@@ -29,6 +29,8 @@ from datetime import datetime
 import requests
 from bs4 import BeautifulSoup
 
+from ingestion import news_scraper
+
 TIRANA_LAT, TIRANA_LON = 41.3275, 19.8187
 _UA = {"User-Agent": "Mozilla/5.0 (TiranaTips city guide)"}
 
@@ -55,6 +57,7 @@ _cache: dict = {
     "exchange": None,
     "departures": None,
     "arrivals": None,
+    "news": [],
     "emergency": {
         "numbers": [
             {"number": "112", "label": "General emergency (EU standard)"},
@@ -324,6 +327,20 @@ async def _fetch_flights(kind: str, limit: int = 6) -> dict:
 
 
 # ---------------------------------------------------------------------------
+# News headlines — scraped from 3 sources, refreshed every 30 min
+# ---------------------------------------------------------------------------
+
+def get_news() -> list[dict]:
+    """Read-only snapshot served by GET /city/news."""
+    return _cache.get("news", [])
+
+
+def _fetch_news() -> list[dict]:
+    per_source = news_scraper.fetch_all()
+    return news_scraper.flatten(per_source, limit_per_source=6)
+
+
+# ---------------------------------------------------------------------------
 # Refresh — called by APScheduler (coroutine job) from main.py
 # ---------------------------------------------------------------------------
 
@@ -340,6 +357,13 @@ async def refresh() -> None:
             _cache[kind] = await _fetch_flights(kind)
         except Exception as exc:
             print(f"[CityNotes] {kind} refresh failed: {exc}")
+
+    # News — 30-minute cadence (separate from 10-min city notes above)
+    try:
+        _cache["news"] = await asyncio.to_thread(_fetch_news)
+        print(f"[CityNotes] news refreshed: {len(_cache['news'])} headlines")
+    except Exception as exc:
+        print(f"[CityNotes] news refresh failed: {exc}")
 
 
 if __name__ == "__main__":

@@ -26,7 +26,7 @@ _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
 
-from database import upsert_events, query_events  # noqa: E402  (re-exported)
+from database import upsert_events, query_events, prune_events  # noqa: E402  (re-exported)
 
 
 # ---------------------------------------------------------------------------

@@ -1411,3 +1411,100 @@
   font-size: 13.5px;
   line-height: 1.5;
 }
+
+/* ─── Recommended places strip ─── */
+.recommended-strip {
+  margin: 24px 0 6px;
+}
+
+.recommended-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.recommended-header h2 {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  color: #102116;
+  font-size: 20px;
+  font-weight: 900;
+}
+
+.recommended-header p {
+  margin: 0;
+  color: #6f7d72;
+  font-size: 13.5px;
+}
+
+.recommended-scroll {
+  display: flex;
+  gap: 14px;
+  overflow-x: auto;
+  padding-bottom: 6px;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(42, 74, 45, 0.2) transparent;
+}
+
+.recommended-scroll::-webkit-scrollbar {
+  height: 4px;
+}
+
+.recommended-scroll::-webkit-scrollbar-thumb {
+  background: rgba(42, 74, 45, 0.2);
+  border-radius: 4px;
+}
+
+.recommended-card {
+  flex: 0 0 200px;
+  border-radius: 18px;
+  padding: 18px;
+  background: rgba(255, 250, 241, 0.86);
+  border: 1px solid rgba(42, 74, 45, 0.1);
+  text-decoration: none;
+  color: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  transition: box-shadow 0.15s, transform 0.15s;
+}
+
+.recommended-card:hover {
+  box-shadow: 0 8px 24px rgba(74, 56, 34, 0.1);
+  transform: translateY(-1px);
+}
+
+.recommended-card-body h3 {
+  margin: 0 0 4px;
+  font-size: 15px;
+  font-weight: 800;
+  color: #102116;
+  line-height: 1.3;
+}
+
+.recommended-card-body p {
+  margin: 0;
+  font-size: 12.5px;
+  color: #5d6b60;
+  line-height: 1.4;
+}
+
+.recommended-card-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: auto;
+}
+
+.mini-tag {
+  font-size: 10.5px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(31, 90, 46, 0.08);
+  color: #2a5a2d;
+  font-weight: 600;
+  text-transform: capitalize;
+}

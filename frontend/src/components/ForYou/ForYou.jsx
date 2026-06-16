@@ -5,7 +5,7 @@ import Register from "../../components/Authentication/Register";
 import Login from "../../components/Authentication/Login";
 import loggedSkyline from "../../assets/skyline.png";
 
-import { getPreferences, getSavedPlaces, getSessionToken } from "../../lib/api";
+import { getPreferences, getSavedPlaces, getSessionToken, getRecommendedPlaces } from "../../lib/api";
 
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
@@ -307,14 +307,27 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
   // Real saved places (login-required). Replaces the old hardcoded mock list.
   const [savedPlaces, setSavedPlaces] = useState([]);
 
+  // Recommended places based on user interests (login-required).
+  const [recommended, setRecommended] = useState([]);
+  const [recommendedLoading, setRecommendedLoading] = useState(false);
+
   useEffect(() => {
     if (!getSessionToken()) {
       setSavedPlaces([]);
+      setRecommended([]);
       return;
     }
     getSavedPlaces()
       .then((r) => setSavedPlaces(r.places || []))
       .catch(() => setSavedPlaces([]));
+    // Load interest-based recommendations once prefs are available
+    setRecommendedLoading(true);
+    import("../../lib/api").then(({ getUserId }) => {
+      getRecommendedPlaces(getUserId())
+        .then((r) => setRecommended(r.places || []))
+        .catch(() => setRecommended([]))
+        .finally(() => setRecommendedLoading(false));
+    });
   }, []);
 
   const interests =
@@ -373,7 +386,9 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
     {
       icon: MapPinned,
       label: "Preferred areas",
-      value: "Not set",
+      value: prefs?.neighborhoods?.length > 0
+        ? prefs.neighborhoods.join(", ")
+        : "Not set",
     },
     {
       icon: Sparkles,
@@ -461,6 +476,44 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
           );
         })}
       </section>
+
+      {/* ── Places you'll love ── */}
+      {recommended.length > 0 && (
+        <section className="recommended-strip">
+          <div className="recommended-header">
+            <h2>
+              <Sparkles size={18} strokeWidth={2.3} />
+              Places you&rsquo;ll love
+            </h2>
+            <p>Based on your interests</p>
+          </div>
+          <div className="recommended-scroll">
+            {recommended.map((place) => (
+              <a
+                key={place.slug}
+                className="recommended-card"
+                href={`https://www.google.com/maps/search/${encodeURIComponent(place.name)}`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                <div className="recommended-card-body">
+                  <h3>{place.name}</h3>
+                  <p>
+                    {place.category}
+                    {place.neighborhood ? ` · ${place.neighborhood}` : ""}
+                    {place.price_tier ? ` · ${"$".repeat(place.price_tier)}` : ""}
+                  </p>
+                </div>
+                <div className="recommended-card-tags">
+                  {(place.interest_tags || []).slice(0, 3).map((tag) => (
+                    <span key={tag} className="mini-tag">{tag}</span>
+                  ))}
+                </div>
+              </a>
+            ))}
+          </div>
+        </section>
+      )}
 
       <section className="dashboard-grid">
         <article className="dashboard-card saved-dashboard-card">

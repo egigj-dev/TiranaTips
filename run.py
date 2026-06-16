@@ -8,8 +8,8 @@ from __future__ import annotations
 import sys
 from datetime import datetime
 
-from base import dedup_canonicalize, upsert_events, prune_events
-import tea, vivere, gowild, enterevents, kookooli, almanart
+from ingestion.base import dedup_canonicalize, upsert_events, prune_events
+from ingestion import tea, vivere, gowild, enterevents, kookooli, almanart
 
 # (name, fetch_callable). Order here is cosmetic; canonical pick is by
 # SOURCE_PRIORITY in base.py, not by run order.

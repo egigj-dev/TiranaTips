@@ -24,6 +24,9 @@ import {
   unsavePlace,
   getSavedSlugs,
   getSessionToken,
+  getPreferences,
+  getUserId,
+  getAlsoSaved,
 } from "../../lib/api";
 
 const CATEGORIES = [
@@ -58,13 +61,38 @@ function Explore() {
   const [savedSlugs, setSavedSlugs] = useState([]);
   const [toast, setToast] = useState("");
 
+  // User preferences for auto-filtering Browse results.
+  const [userPrefs, setUserPrefs] = useState(null);
+
+  // Collaborative 'people also saved' recommendations
+  const [alsoSaved, setAlsoSaved] = useState([]);
+  const [alsoSavedSlug, setAlsoSavedSlug] = useState(null);
+  const [alsoSavedLoading, setAlsoSavedLoading] = useState(false);
+
   useEffect(() => {
     if (getSessionToken()) {
       getSavedSlugs()
         .then((r) => setSavedSlugs(r.slugs || []))
         .catch(() => {});
+      getPreferences()
+        .then((p) => setUserPrefs(p))
+        .catch(() => {});
     }
   }, []);
+
+  // When results change, load collaborative 'people also saved' for the first
+  // owned place (has a slug) — seeded by .slug, not Google's g:<place_id>.
+  useEffect(() => {
+    const owned = results.find((p) => p.slug);
+    const targetSlug = owned?.slug;
+    if (!targetSlug || targetSlug === alsoSavedSlug) return;
+    setAlsoSavedSlug(targetSlug);
+    setAlsoSavedLoading(true);
+    getAlsoSaved(targetSlug, 4)
+      .then((r) => setAlsoSaved(r.places || []))
+      .catch(() => setAlsoSaved([]))
+      .finally(() => setAlsoSavedLoading(false));
+  }, [results]);
 
   const showToast = (msg) => {
     setToast(msg);
@@ -166,11 +194,17 @@ function Explore() {
     setActiveCat(cat.key);
     setSearchText("");
     setHasSearched(true);
+    // Auto-filter by the user's price_tier + interests if logged in
+    const isLoggedIn = getSessionToken();
+    const maxPrice = isLoggedIn && userPrefs?.price_tier
+      ? userPrefs.price_tier : undefined;
     try {
       const { places } = await browsePlaces({
         query: cat.query,
         category: cat.browseCat,
         neighborhood: hood || null,
+        max_price: maxPrice,
+        user_id: isLoggedIn ? getUserId() : undefined,
         limit: 12,
       });
       if (myReq !== reqId.current) return;
@@ -215,6 +249,19 @@ function Explore() {
             Search
           </button>
         </div>
+
+        {getSessionToken() && userPrefs?.price_tier && (
+          <div className="explore-prefs-badge">
+            <span className="prefs-badge-icon">✦</span>
+            Personalized for you
+          </div>
+        )}
+        {getSessionToken() && userPrefs?.interests?.length > 0 && !userPrefs?.price_tier && (
+          <div className="explore-prefs-badge">
+            <span className="prefs-badge-icon">✦</span>
+            Ranked by your interests
+          </div>
+        )}
 
         <div className="explore-categories">
           {CATEGORIES.map((c) => {
@@ -414,6 +461,45 @@ function Explore() {
               })}
             </div>
           </>
+        )}
+
+        {/* ── People also saved ── */}
+        {alsoSaved.length > 0 && (
+          <section className="also-saved-strip">
+            <div className="also-saved-header">
+              <h2>
+                <Bookmark size={16} strokeWidth={2.3} />
+                People also saved
+              </h2>
+              <p>Collaborative picks based on saved places</p>
+            </div>
+            <div className="also-saved-scroll">
+              {alsoSaved.map((place) => (
+                <a
+                  key={place.slug}
+                  className="recommended-card"
+                  href={`https://www.google.com/maps/search/${encodeURIComponent(place.name)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <div className="recommended-card-body">
+                    <h3>{place.name}</h3>
+                    {place.category && <span className="place-type">{place.category}</span>}
+                    {place.neighborhood && (
+                      <p className="place-address">
+                        <MapPin size={13} /> {place.neighborhood}
+                      </p>
+                    )}
+                    {place.co_save_count > 0 && (
+                      <p className="also-saved-count">
+                        Saved by {place.co_save_count} other{place.co_save_count !== 1 ? "s" : ""}
+                      </p>
+                    )}
+                  </div>
+                </a>
+              ))}
+            </div>
+          </section>
         )}
       </section>
 
