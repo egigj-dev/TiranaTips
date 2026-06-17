@@ -1,4 +1,6 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import "./ask.css";
 
 import "leaflet/dist/leaflet.css";
@@ -16,7 +18,9 @@ import {
   deleteSession,
   downloadSession,
   getSummaries,
+  getUserId,
 } from "../../lib/api";
+import { getUserProfile, getUserLanguage } from "../../lib/auth";
 
 const mapMarkerIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -51,6 +55,13 @@ function Ask() {
   const [feedbackGiven, setFeedbackGiven] = useState({}); // {messageId: 1|-1}
   const [contextSession, setContextSession] = useState(null); // {session_id, display_name}
   const [showContextPicker, setShowContextPicker] = useState(false);
+  // User's stored language from their profile. Read from localStorage first
+  // (persisted on login/register), then re-sync from the profile fetch below
+  // in case the user changed language on another device.
+  const [userLanguage, setUserLanguage] = useState(getUserLanguage());
+  // Ref to buffer English tokens silently when translation is pending, so the
+  // user never sees the English answer flash before the translated version.
+  const tokenBufferRef = useRef("");
 
 
   const mostAsked = [
@@ -99,12 +110,24 @@ function Ask() {
   // Past chat threads for the sidebar. refreshSessions() is called after any
   // mutation (new message persisted, rename, delete) to keep the list current.
   const refreshSessions = () =>
-    getSessions()
+    getSessions(getUserId())
       .then(({ sessions: list }) => setSessions(list || []))
       .catch(() => {});
 
   useEffect(() => {
     refreshSessions();
+  }, []);
+
+  // Fetch the authenticated user's profile language on mount so every chat
+  // request uses the user's chosen language instead of "auto".
+  useEffect(() => {
+    getUserProfile().then((profile) => {
+      if (profile?.language) {
+        setUserLanguage(profile.language);
+      }
+    }).catch(() => {
+      // Not logged in — keep whatever localStorage has (likely "auto").
+    });
   }, []);
 
   const openSession = (sessionId) => {
@@ -171,10 +194,12 @@ function Ask() {
   //
   // Flow per backend contract:
   //   1. `sources` event arrives first → stash on the pending message
-  //   2. `token` events append text (typing indicator goes away on first one)
-  //   3. optional `translation` event REPLACES the full text (the backend
-  //      streams English first, then swaps in the user-language version)
-  //   4. `done` ends the stream; `low_confidence` short-circuits with a
+  //   2. optional `generating` event → show "Searching..." placeholder
+  //   3. `token` events append text (buffered silently when translation is
+  //      pending so the user never sees English flash before translation)
+  //   4. optional `translation` event REPLACES the full text with the
+  //      user-language version
+  //   5. `done` ends the stream; `low_confidence` short-circuits with a
   //      fallback message instead of tokens.
   // -------------------------------------------------------------------------
   const sendQuestion = async (textToSend) => {
@@ -223,19 +248,42 @@ function Ask() {
       ]);
     };
 
+    // Whether the backend will produce a translation event. When true, we
+    // buffer English tokens silently in the ref and only show the final
+    // translated text — no flashing "English then swap" UX.
+    const needsTranslation =
+      userLanguage && userLanguage !== "auto" && userLanguage !== "en";
+    // Reset the silent buffer for each question.
+    tokenBufferRef.current = "";
+
     try {
       await streamChat(
-        { question: trimmed, context_session_id: contextSession?.session_id },
+        { question: trimmed, language: userLanguage, context_session_id: contextSession?.session_id },
         {
           onSources: (sources) => {
             ensureBubble();
             patchAssistant(() => ({ sources }));
           },
+          onGenerating: () => {
+            ensureBubble();
+            // Show a searching indicator while the backend generates the
+            // English answer (which we buffer silently until translation).
+            patchAssistant(() => ({ text: "Searching for the best answer…" }));
+          },
           onToken: (token) => {
             ensureBubble();
-            patchAssistant((m) => ({ text: m.text + token }));
+            if (needsTranslation) {
+              // Buffer silently — the user sees the "Searching…" placeholder
+              // until the translation event replaces it.
+              tokenBufferRef.current += token;
+            } else {
+              // English-only: stream tokens directly as before.
+              patchAssistant((m) => ({ text: m.text + token }));
+            }
           },
           onTranslation: (text) => {
+            // Replace the placeholder (or any partial text) with the final
+            // translated answer in the user's language.
             patchAssistant(() => ({ text }));
           },
           onLowConfidence: (message) => {
@@ -409,7 +457,25 @@ function Ask() {
                 >
                   {message.type === "assistant" && <strong>TiranaTips</strong>}
 
-                  <p>{message.text}</p>
+                  {message.type === "user" ? (
+                    <p>{message.text}</p>
+                  ) : (
+                    <div className="markdown-content">
+                      <ReactMarkdown
+                        remarkPlugins={[remarkGfm]}
+                        components={{
+                          // Render links in a new tab for safety
+                          a: ({ href, children }) => (
+                            <a href={href} target="_blank" rel="noreferrer">
+                              {children}
+                            </a>
+                          ),
+                        }}
+                      >
+                        {message.text}
+                      </ReactMarkdown>
+                    </div>
+                  )}
 
                   {message.cardType === "recommendationList" &&
                     message.recommendations && (
@@ -425,7 +491,9 @@ function Ask() {
 
                   {message.sources?.length > 0 && (
                     <div className="message-sources">
-                      {message.sources.map((source, i) =>
+                      {message.sources.filter(
+                        (s) => s.type !== "local"
+                      ).map((source, i) =>
                         source.url ? (
                           <a
                             key={i}
@@ -433,7 +501,7 @@ function Ask() {
                             target="_blank"
                             rel="noreferrer"
                           >
-                            {source.type === "event" ? "📅" : "🌐"}{" "}
+                            {source.type === "event" ? "📅" : source.type === "place" ? "📍" : "🌐"}{" "}
                             {source.title}
                           </a>
                         ) : (

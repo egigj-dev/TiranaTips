@@ -93,7 +93,7 @@ export async function request(path, options = {}) {
 
 export async function streamChat(
   { question, language = "auto", model = null, isRetry = false, context_session_id = null } = {},
-  { onSources, onToken, onTranslation, onLowConfidence } = {},
+  { onSources, onToken, onTranslation, onLowConfidence, onGenerating } = {},
   signal = undefined
 ) {
   const res = await fetch(`${API_BASE}/chat/stream`, {
@@ -143,6 +143,7 @@ export async function streamChat(
         case "sources":        onSources?.(evt.sources); break;
         case "token":          onToken?.(evt.token); break;
         case "translation":    onTranslation?.(evt.text); break;
+        case "generating":     onGenerating?.(evt); break;
         case "low_confidence": onLowConfidence?.(evt.message); break;
         case "done":           return;
         // "cache" is informational — tokens follow either way.
@@ -164,7 +165,10 @@ export const getHistory = () => request(`/history/${getSessionId()}`);
 // Backend returns { sessions: [{ session_id, display_name }] }, newest first.
 // ---------------------------------------------------------------------------
 
-export const getSessions = () => request("/sessions");
+export const getSessions = (userId) =>
+  userId
+    ? request(`/sessions?user_id=${encodeURIComponent(userId)}`)
+    : request("/sessions");
 
 export const getHistoryFor = (sessionId) =>
   request(`/history/${sessionId}`);
@@ -292,7 +296,7 @@ export const getEvents = (days = 30, category = null) => {
 // Re-exported from ./auth.js which validates against local users.json.
 // ---------------------------------------------------------------------------
 
-export { login, register, logout, checkSession, getSessionToken } from "./auth.js";
+export { login, register, logout, checkSession, getSessionToken, getUserProfile, getUserLanguage } from "./auth.js";
 
 
 const authHeaders = () => {

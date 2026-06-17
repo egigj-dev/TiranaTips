@@ -2,18 +2,11 @@ import { Link } from "react-router-dom";
 import "./footer.css";
 
 function Footer() {
-  const footerLinks = {
-    city: [
-      { label: "Today", path: "/" },
-      { label: "Explore", path: "/explore" },
-      { label: "Ask TiranaTips", path: "/ask" },
-    ],
-    guide: [
-      { label: "Global", path: "/global" },
-      { label: "For You", path: "/for-you" },
-      { label: "Practical Info", path: "/explore" },
-    ],
-  };
+  const footerLinks = [
+    { label: "Today", path: "/" },
+    { label: "Explore", path: "/explore" },
+    { label: "Ask", path: "/ask" },
+  ];
 
   return (
     <footer className="footer">
@@ -31,36 +24,43 @@ function Footer() {
               A smart city guide for discovering Tirana, planning your day,
               and finding local tips that match your mood.
             </p>
-
-            <div className="footer-tags">
-              <span>Local</span>
-              <span>Smart</span>
-              <span>Daily</span>
-            </div>
           </div>
 
-          <div className="footer-columns">
-            <div className="footer-column">
-              <h4>City</h4>
-              {footerLinks.city.map((link) => (
+          <nav className="footer-links" aria-label="Footer navigation">
+            <h4>City</h4>
+
+            <div className="footer-link-list">
+              {footerLinks.map((link) => (
                 <Link key={link.label} to={link.path}>
                   {link.label}
                 </Link>
               ))}
             </div>
+          </nav>
 
-            <div className="footer-column">
-              <h4>Guide</h4>
-              {footerLinks.guide.map((link) => (
-                <Link key={link.label} to={link.path}>
-                  {link.label}
-                </Link>
-              ))}
-            </div>
+          <div className="footer-note footer-emergency">
+            <h4>Emergency</h4>
 
-            <div className="footer-column footer-note">
-              <h4>Built for</h4>
-              <p>Locals, visitors, students, remote workers, and curious people exploring Tirana.</p>
+            <div className="footer-emergency-list">
+              <p>
+                <strong>112</strong>
+                <span>General Emergency</span>
+              </p>
+
+              <p>
+                <strong>129</strong>
+                <span>Police</span>
+              </p>
+
+              <p>
+                <strong>127</strong>
+                <span>Ambulance</span>
+              </p>
+
+              <p>
+                <strong>128</strong>
+                <span>Fire Brigade</span>
+              </p>
             </div>
           </div>
         </div>

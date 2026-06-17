@@ -34,9 +34,10 @@ from database import (save_message, get_history, save_summary, get_summary,
                        rename_session, get_session_name,
                        save_feedback, get_feedback_stats,
                        get_user_preferences, save_user_preferences,
-                       delete_user_preferences, query_events, prune_events, DB_PATH,
+                       delete_user_preferences, query_events, query_places_by_keyword,
+                       prune_events, DB_PATH,
                        save_place, unsave_place, get_saved_places, get_saved_slugs,
-                       get_also_saved)
+                       get_also_saved, ensure_session_owner, get_sessions_for_user)
 import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
@@ -267,6 +268,10 @@ def get_events_context(
         if e.get("category"):
             parts.append(f"({e['category']})")
         line = ", ".join(parts)
+        # Append a Google Maps link when lat/lon coordinates are available
+        lat, lon = e.get("lat"), e.get("lon")
+        if lat is not None and lon is not None:
+            line += f" — [View on map](https://www.google.com/maps/search/?api=1&query={lat},{lon})"
         if e.get("ticket_url"):
             line += f" — tickets: {e['ticket_url']}"
         lines.append("- " + line)
@@ -276,6 +281,92 @@ def get_events_context(
 
     context = "UPCOMING EVENTS IN TIRANA (from local listings):\n" + "\n".join(lines)
     return context, sources
+
+
+# ---------------------------------------------------------------------------
+# Places lookup (local SQLite, populated by osm_places.py)
+# ---------------------------------------------------------------------------
+# For questions about restaurants, cafes, bars, museums, etc., we query the
+# OSM-sourced places table by keyword and return formatted context with
+# Google Maps links. Returns ("", []) when no places match, so the caller
+# falls through to the normal RAG/web-search pipeline exactly as before.
+
+def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
+    """Search places by keyword matching against name, category, neighborhood.
+    Returns (formatted_context, sources_list) where each source has type="place"
+    and a maps_url field for the frontend pill.
+    """
+    # Extract meaningful keywords from the question — skip common stop words
+    # so short queries like "good coffee near Blloku" match "coffee" and "Blloku".
+    stop_words = {
+        "a", "an", "the", "is", "are", "was", "were", "in", "on", "at", "to",
+        "for", "of", "with", "and", "or", "near", "good", "best", "great",
+        "nice", "find", "show", "tell", "me", "about", "some", "any", "what",
+        "where", "which", "how", "do", "does", "i", "you", "we", "they",
+        "recommend", "looking", "like", "want", "need", "can", "could",
+    }
+    words = [w.strip("?,.!;:") for w in question.lower().split()
+             if w.strip("?,.!;:") not in stop_words and len(w.strip("?,.!;:")) > 1]
+
+    # Collect unique places across all keyword searches
+    seen_slugs: set[str] = set()
+    places: list[dict] = []
+    for kw in words:
+        results = query_places_by_keyword(kw, limit=limit)
+        for p in results:
+            if p["slug"] not in seen_slugs:
+                seen_slugs.add(p["slug"])
+                places.append(p)
+
+    # If the question is very short with no keywords, try the whole question
+    if not places and len(question.strip()) > 2:
+        results = query_places_by_keyword(question.strip(), limit=limit)
+        for p in results:
+            if p["slug"] not in seen_slugs:
+                seen_slugs.add(p["slug"])
+                places.append(p)
+
+    if not places:
+        return "", []
+
+    # Sort: exact name matches first, then category matches, then neighborhood
+    q_lower = question.lower()
+    def sort_key(p):
+        name_score = 2 if q_lower in p["name"].lower() else 0
+        cat_score  = 1 if p.get("category") and q_lower in p["category"].lower() else 0
+        return -(name_score + cat_score)
+    places.sort(key=sort_key)
+
+    places = places[:limit]
+
+    lines:   list[str]  = []
+    sources: list[dict] = []
+    for p in places:
+        lat, lon = p.get("lat"), p.get("lon")
+        maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat is not None and lon is not None else ""
+        parts = [f"**{p['name']}**"]
+        if p.get("category"):
+            parts.append(f"({p['category']})")
+        if p.get("neighborhood"):
+            parts.append(f"in {p['neighborhood']}")
+        line = " ".join(parts)
+        if maps_url:
+            line += f" — [View on map]({maps_url})"
+        if p.get("address"):
+            line += f" — {p['address']}"
+        lines.append(f"- {line}")
+        # Each place becomes a typed source with maps_url
+        sources.append({
+            "title": p["name"],
+            "type": "place",
+            "maps_url": maps_url,
+            "url": "",  # No external URL; frontend uses maps_url for the link
+        })
+
+    context = "PLACES IN TIRANA (from local directory):\n" + "\n".join(lines)
+    return context, sources
+
+
 # ---------------------------------------------------------------------------
 # Translates the user question to English before retrieval (optimal for the
 # embedding model and BM25), then translates the English answer back to the
@@ -904,7 +995,10 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[dict], 
         context_parts.append(
             f"Source [{i}] ({hit.payload.get('title', '?')}): {hit.payload['text']}"
         )
-        sources.append({"title": hit.payload.get("title", "Unknown"), "type": "local"})
+        # Local sources expose internal wiki page names as tags. We include
+        # them in the LLM context but strip them from the frontend sources
+        # list — the user sees only web results and event links, which have
+        # real URLs and useful titles.
 
     best_raw_score = float(ranked[0][0])
     confidence     = 1.0 / (1.0 + math.exp(-best_raw_score))
@@ -1074,6 +1168,13 @@ def _build_system_prompt(
         "- If you want to offer more help but the context is exhausted, use this exact "
         "phrasing: \"I don't have more details on that — let me know if you'd like me to "
         "look further.\"\n"
+        "- When mentioning a place (restaurant, cafe, bar, museum, coworking space, hotel, etc.) in your answer, "
+        "always format it as a clickable link with its Google Maps URL. If lat/lon coordinates are available "
+        "in the context, use: [Place Name](https://www.google.com/maps/search/?api=1&query=LAT,LON). "
+        "If coordinates are NOT available, use a text search instead: "
+        "[Place Name](https://www.google.com/maps/search/?api=1&query=PLACE_NAME+Tirana+Albania). "
+        "This way EVERY place mentioned is a clickable link to Google Maps.\n"
+        "- For events, include the Maps link when coordinates are available in the context.\n"
         f"{source_note}\n"
         f"CONTEXT:\n{context}"
     )
@@ -1241,6 +1342,15 @@ async def chat_stream(request: Request, req: ChatRequest):
             return StreamingResponse(low_confidence_stream(), media_type="text/event-stream")
         context, sources, is_web = web_context, web_sources, True
 
+    # Places context — complementary lookup from the OSM places table.
+    # Merges into both the context string (for the LLM) and the sources list
+    # (for the frontend pills). Always runs regardless of the confidence path,
+    # so places always appear when the DB has a keyword match.
+    places_context, places_sources = get_places_context(english_question)
+    if places_context:
+        context = context + "\n\n" + places_context if context else places_context
+        sources = sources + places_sources
+
     summary        = get_summary(req.session_id)
     # Inject context from another session if provided
     context_summary = ""
@@ -1256,50 +1366,68 @@ async def chat_stream(request: Request, req: ChatRequest):
     )
 
     async def generate():
-        full_answer_parts: list[str] = []
-        completed = False
-        try:
-            yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
+            full_answer_parts: list[str] = []
+            completed = False
+            try:
+                yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-            async for token in stream_llm_tokens(messages_to_send, model):
-                full_answer_parts.append(token)
-                yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
+                # When the answer needs translation, tell the frontend to show a
+                # placeholder instead of streaming raw English tokens the user
+                # would see before the translation replaces them.
+                needs_translation = bool(user_language and user_language != "en")
+                if needs_translation:
+                    yield f"data: {json.dumps({'type': 'generating'})}\n\n"
 
-            english_answer = "".join(full_answer_parts)
-            if user_language and user_language != "en":
-                final_answer = await translate_answer_to_language(english_answer, user_language)
-                yield f"data: {json.dumps({'type': 'translation', 'text': final_answer})}\n\n"
-            else:
-                final_answer = english_answer
+                async for token in stream_llm_tokens(messages_to_send, model):
+                    full_answer_parts.append(token)
+                    yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
 
-            # On retry: user message already in DB → don't duplicate it.
-            if not req.is_retry:
-                save_message(req.session_id, "user", req.question)
-            save_message(req.session_id, "assistant", final_answer)
-            _cache[key] = {
-                "answer":   final_answer,
-                "sources":  sources,
-                "ts":       time.time(),
-                "question": req.question.strip().lower(),
-            }
+                english_answer = "".join(full_answer_parts)
+                if user_language and user_language != "en":
+                    final_answer = await translate_answer_to_language(english_answer, user_language)
+                    yield f"data: {json.dumps({'type': 'translation', 'text': final_answer})}\n\n"
+                else:
+                    final_answer = english_answer
 
-            history_len = len(get_history(req.session_id, limit=100))
-            if history_len % 10 == 0 and history_len > 0:
-                asyncio.create_task(asyncio.to_thread(_summarize_session, req.session_id, model))
+                # Post-process: inject Google Maps links for place names
+                # found in our places database. This catches places the LLM
+                # mentioned but didn't format as links.
+                final_answer = _inject_maps_links(final_answer, places_sources)
 
-            yield f"data: {json.dumps({'type': 'done'})}\n\n"
-            completed = True
-        finally:
-            # Runs on success (no-op) and on client disconnect (CancelledError).
-            # Persist whatever we managed to generate so the chat reflects reality.
-            # Intentionally NOT caching a partial answer.
-            if not completed:
-                partial = "".join(full_answer_parts).strip()
-                if partial:
-                    if not req.is_retry:
-                        save_message(req.session_id, "user", req.question)
-                    save_message(req.session_id, "assistant",
-                                partial + "\n\n_[Response interrupted]_")
+                # On retry: user message already in DB → don't duplicate it.
+                if not req.is_retry:
+                    save_message(req.session_id, "user", req.question)
+                    if req.user_id:
+                        ensure_session_owner(req.session_id, req.user_id)
+                    _auto_name_session(req.session_id, req.question)
+                save_message(req.session_id, "assistant", final_answer)
+                _cache[key] = {
+                    "answer":   final_answer,
+                    "sources":  sources,
+                    "ts":       time.time(),
+                    "question": req.question.strip().lower(),
+                }
+
+                history_len = len(get_history(req.session_id, limit=100))
+                if history_len % 10 == 0 and history_len > 0:
+                    asyncio.create_task(asyncio.to_thread(_summarize_session, req.session_id, model))
+
+                yield f"data: {json.dumps({'type': 'done'})}\n\n"
+                completed = True
+            finally:
+                # Runs on success (no-op) and on client disconnect (CancelledError).
+                # Persist whatever we managed to generate so the chat reflects reality.
+                # Intentionally NOT caching a partial answer.
+                if not completed:
+                    partial = "".join(full_answer_parts).strip()
+                    if partial:
+                        if not req.is_retry:
+                            save_message(req.session_id, "user", req.question)
+                            if req.user_id:
+                                ensure_session_owner(req.session_id, req.user_id)
+                            _auto_name_session(req.session_id, req.question)
+                        save_message(req.session_id, "assistant",
+                                    partial + "\n\n_[Response interrupted]_")
 
     return StreamingResponse(
         generate(),
@@ -1353,6 +1481,12 @@ def chat(request: Request, req: ChatRequest):
             return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
         context, sources, is_web = web_context, web_sources, True
 
+    # Places context — complementary lookup from the OSM places table.
+    places_context, places_sources = get_places_context(english_question)
+    if places_context:
+        context = context + "\n\n" + places_context if context else places_context
+        sources = sources + places_sources
+
     summary       = get_summary(req.session_id)
     system_prompt = _build_system_prompt(context, summary, is_web, user_prefs)
     messages      = (
@@ -1370,8 +1504,15 @@ def chat(request: Request, req: ChatRequest):
     else:
         final_answer = english_answer
 
+    # Post-process: inject Google Maps links for place names
+    # found in our places database.
+    final_answer = _inject_maps_links(final_answer, places_sources)
+
     if not req.is_retry:
         save_message(req.session_id, "user", req.question)
+        if req.user_id:
+            ensure_session_owner(req.session_id, req.user_id)
+        _auto_name_session(req.session_id, req.question)
     save_message(req.session_id, "assistant", final_answer)
 
     history_len = len(get_history(req.session_id, limit=100))
@@ -1399,6 +1540,17 @@ def _summarize_session(session_id: str, model: str):
         "content": f"Përmblidhe bisedën e mëposhtme në 3-5 fjali:\n\n{conversation}"
     }], model)
     save_summary(session_id, summary)
+
+
+def _auto_name_session(session_id: str, question: str) -> None:
+    """Give a session a human-readable name from its first question, if unnamed."""
+    current = get_session_name(session_id)
+    if current != session_id:
+        return  # Already has a proper name
+    name = question.strip()[:60]
+    if len(name) > 57:
+        name = name[:57] + "…"
+    rename_session(session_id, name)
 
 
 # ---------------------------------------------------------------------------
@@ -1467,7 +1619,25 @@ def get_chat_summary(session_id: str):
     return {"summary": get_summary(session_id)}
 
 @app.get("/sessions")
-def list_sessions():
+def list_sessions(user_id: str | None = None):
+    if user_id:
+        import sqlite3 as _sq
+        session_ids = get_sessions_for_user(user_id)
+        names = {}
+        if session_ids:
+            conn = _sq.connect(DB_PATH)
+            placeholders = ",".join("?" * len(session_ids))
+            name_rows = conn.execute(
+                f"SELECT session_id, display_name FROM session_names WHERE session_id IN ({placeholders})",
+                session_ids,
+            ).fetchall()
+            conn.close()
+            names = {r[0]: r[1] for r in name_rows}
+        sessions = [
+            {"session_id": sid, "display_name": names.get(sid, sid)}
+            for sid in session_ids
+        ]
+        return {"sessions": sessions}
     return {"sessions": get_all_sessions_with_names()}
 
 @app.get("/summaries")
@@ -1578,8 +1748,14 @@ def auth_me(request: Request):
     payload = _verify_token(token)
     if not payload:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+    # Fetch the user's stored language from the DB so the frontend can
+    # enforce it on every chat request without re-logging in.
+    from database import verify_user
+    user = verify_user(payload["un"], None, skip_password=True)
+    language = user["language"] if user else "en"
     return {"authenticated": True, "user_id": payload["uid"],
-            "username": payload["un"], "display_name": payload["dn"]}
+            "username": payload["un"], "display_name": payload["dn"],
+            "language": language}
 
 
 # ---------------------------------------------------------------------------
@@ -2108,6 +2284,39 @@ def _is_onboarded(prefs: dict) -> bool:
         prefs.get("interests"),
         prefs.get("neighborhoods"),
     ])
+
+# ---------------------------------------------------------------------------
+# Last-mile Maps links injection — post-processes the LLM answer so every
+# place name that exists in our places DB becomes a clickable Google Maps
+# link, even if the LLM didn't format it that way.
+# ---------------------------------------------------------------------------
+
+import re as _re
+
+def _inject_maps_links(text: str, place_sources: list[dict]) -> str:
+    """Scan `text` for place names from `place_sources` and wrap any that
+    aren't already inside a markdown link with a Maps URL.
+
+    place_sources entries must have "title" and "maps_url" keys.
+    Skips names already wrapped in [name](url) and names shorter than 3 chars.
+    """
+    if not place_sources or not text:
+        return text
+    result = text
+    for ps in place_sources:
+        name = ps.get("title", "").strip()
+        maps_url = ps.get("maps_url", "")
+        if not name or len(name) < 3 or not maps_url:
+            continue
+        # Match name as a whole word, not preceded by '[' (already in a
+        # markdown link) and not followed by a word character or ')'.
+        result = _re.sub(
+            rf"(?<!\w)(?<!\[)({_re.escape(name)})(?!\w|\)])",
+            rf"[\1]({maps_url})",
+            result,
+        )
+    return result
+
 
 def _require_user(request: Request) -> dict:
     """Extract + validate the auth token, return its payload, or 401. Used by

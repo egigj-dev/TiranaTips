@@ -1,35 +1,41 @@
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import "./home.css";
+
 import {
   CalendarDays,
   CloudSun,
   Thermometer,
+  MessageCircle,
+  Compass,
+  Music,
+  Construction,
+  Utensils,
+  Landmark,
+  Map,
+  Mountain,
   Users,
   BriefcaseBusiness,
   GraduationCap,
   LaptopMinimal,
-  Droplets,
-  PlaneTakeoff,
-  PlaneLanding,
-  MessageCircle,
-  Compass,
-  Leaf,
-  Building2,
-  Music,
-  Construction,
-  BadgePercent,
-  Phone,
+  CircleDollarSign,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
-import { getCityNotes, getNews } from "../../lib/api";
+import { getCityNotes, getNews, getPreferences } from "../../lib/api";
 
 import tiranaHeroImage from "../../assets/home.png";
-import exchangeNoteImg from "../../assets/home/exchange-note.png";
-import airportNoteImg from "../../assets/home/airport-note.png";
 
 function Home() {
   const [notes, setNotes] = useState(null);
   const [news, setNews] = useState([]);
+  const [userPrefs, setUserPrefs] = useState(null);
+
+  const newsScrollRef = useRef(null);
+  const isDraggingRef = useRef(false);
+  const startXRef = useRef(0);
+  const scrollLeftRef = useRef(0);
+  const hasDraggedRef = useRef(false);
 
   useEffect(() => {
     const loadCityNotes = () => {
@@ -40,8 +46,15 @@ function Home() {
       getNews().then(setNews).catch(console.error);
     };
 
+    const loadPrefs = () => {
+      getPreferences()
+        .then(setUserPrefs)
+        .catch(() => {});
+    };
+
     loadCityNotes();
     loadNews();
+    loadPrefs();
 
     const interval = setInterval(() => {
       loadCityNotes();
@@ -50,6 +63,49 @@ function Home() {
 
     return () => clearInterval(interval);
   }, []);
+
+  const scrollNews = (direction) => {
+    if (!newsScrollRef.current) return;
+
+    newsScrollRef.current.scrollBy({
+      left: direction === "left" ? -380 : 380,
+      behavior: "smooth",
+    });
+  };
+
+  const handleNewsPointerDown = (e) => {
+    if (!newsScrollRef.current) return;
+
+    isDraggingRef.current = true;
+    hasDraggedRef.current = false;
+
+    newsScrollRef.current.classList.add("is-dragging");
+
+    startXRef.current = e.pageX - newsScrollRef.current.offsetLeft;
+    scrollLeftRef.current = newsScrollRef.current.scrollLeft;
+  };
+
+  const handleNewsPointerMove = (e) => {
+    if (!isDraggingRef.current || !newsScrollRef.current) return;
+
+    const x = e.pageX - newsScrollRef.current.offsetLeft;
+    const walk = (x - startXRef.current) * 1.4;
+
+    if (Math.abs(walk) > 6) {
+      hasDraggedRef.current = true;
+    }
+
+    newsScrollRef.current.scrollLeft = scrollLeftRef.current - walk;
+  };
+
+  const stopNewsDrag = () => {
+    isDraggingRef.current = false;
+    hasDraggedRef.current = false;
+
+    if (newsScrollRef.current) {
+      newsScrollRef.current.classList.remove("is-dragging");
+    }
+  };
 
   const todayLabel = new Date().toLocaleDateString("en-US", {
     weekday: "long",
@@ -66,83 +122,35 @@ function Home() {
     });
   };
 
+  // User's preferred currency from their profile, or fall back to EUR
+  const preferredCurrency =
+    userPrefs?.currency && userPrefs.currency !== "ALL"
+      ? userPrefs.currency
+      : "EUR";
+
+  const userRate = notes?.exchange?.rates?.[preferredCurrency];
+
   const eur = notes?.exchange?.rates?.EUR;
 
-  const shortCity = (city) =>
-    city.replace(/\s*\([A-Z]{2}\)\s*$/, "").split(" / ")[0].trim();
-
-  const flightLine = (f) => (f ? `${f.time} · ${shortCity(f.city)}` : null);
-
-  const flightLines = (section) =>
-    (section?.flights ?? []).slice(0, 3).map(flightLine).filter(Boolean);
-
-  const dep = flightLines(notes?.departures);
-  const arr = flightLines(notes?.arrivals);
-
-  const hour = new Date().getHours();
-
-  const greeting =
-    hour < 12 ? "Good morning," : hour < 18 ? "Good afternoon," : "Good evening,";
-
-  const audienceItems = [
-    { icon: Users, label: "For locals" },
-    { icon: BriefcaseBusiness, label: "Visitors" },
-    { icon: GraduationCap, label: "Students" },
-    { icon: LaptopMinimal, label: "Digital nomads" },
-    { icon: Building2, label: "Business / Investor" },
-  ];
-
-  const smartNotes = [
-    {
-      icon: Phone,
-      title: "Emergency",
-      label: "Toll-free anywhere",
-      lines: notes?.emergency?.numbers?.map(
-        (n) => `${n.number} · ${n.label}`
-      ) ?? ["112 · General emergency"],
-      variant: "emergency",
-      href: null,
-    },
-    {
-      icon: Droplets,
-      title: "Exchange Rates",
-      label: "EUR → ALL · Iliria'98",
-      value: eur ? `${eur.buy} / ${eur.sell}` : "—",
-      note: eur ? "buy / sell" : "",
-      variant: "exchange",
-      image: exchangeNoteImg,
-      href: "https://iliria98.com/",
-    },
-    {
-      icon: PlaneTakeoff,
-      title: "Departures",
-      label: "Next from TIA",
-      lines: dep,
-      variant: "airport",
-      image: airportNoteImg,
-      href: "https://www.tirana-airport.com/en/flights/departures",
-    },
-    {
-      icon: PlaneLanding,
-      title: "Arrivals",
-      label: "Next at TIA",
-      lines: arr,
-      variant: "airport",
-      image: airportNoteImg,
-      href: "https://www.tirana-airport.com/en/flights/arrivals",
-    },
-  ];
-
   const weatherUpdatedTime = formatTime(notes?.weather?.fetched_at);
+
+  const weatherLabel = notes?.weather?.label ?? "Overcast";
+
+  const weatherTempValue = notes?.weather?.temp_c ?? 30;
+  const weatherTemp = `${weatherTempValue}°C`;
+
+  const weatherNote =
+    notes?.weather?.alert_text || `Currently around ${weatherTemp}.`;
+
+  const weekday = todayLabel.split(",")[0];
+  const dateWithoutWeekday = todayLabel.replace(`${weekday}, `, "");
 
   const rightNowUpdates = [
     {
       icon: CloudSun,
       category: "Weather",
-      title: notes?.weather?.alert_title || "Loading weather update",
-      text:
-        notes?.weather?.alert_text ||
-        "Checking the latest Tirana weather from the backend.",
+      title: notes?.weather?.alert_title || "Overcast in Tirana",
+      text: notes?.weather?.alert_text || `Currently around ${weatherTemp}.`,
       time: weatherUpdatedTime,
       variant: "weather",
     },
@@ -151,7 +159,7 @@ function Home() {
       category: "Events",
       title: "Live music near Skanderbeg Square",
       text: "Performance starts at 9pm.",
-      time: "9:00 AM",
+      time: "09:00",
       variant: "event",
     },
     {
@@ -159,213 +167,145 @@ function Home() {
       category: "Traffic",
       title: "Rruga “Ismail Qemali” partially closed",
       text: "Avoid area until 7pm.",
-      time: "7:45 AM",
+      time: "07:45",
       variant: "traffic",
-    },
-    {
-      icon: BadgePercent,
-      category: "Deals",
-      title: "Student museum discount",
-      text: "Save on selected museums and culture spots today.",
-      time: "10:00 AM",
-      variant: "deal",
     },
   ];
 
   const explorePreview = [
     {
+      icon: Utensils,
       image:
         "https://images.unsplash.com/photo-1554118811-1e0d58224f24?auto=format&fit=crop&w=900&q=80",
-      tag: "Food & Cafés",
-      title: "Restaurants, brunch, coffee and work spots.",
+      title: "Food & Cafés",
+      text: "Restaurants, brunch, coffee and work spots.",
       href: "/explore#food-cafes",
     },
     {
+      icon: Landmark,
       image:
         "https://images.unsplash.com/photo-1564399579883-451a5d44ec08?auto=format&fit=crop&w=900&q=80",
-      tag: "Attractions & Culture",
-      title: "Museums, landmarks, history and photo spots.",
+      title: "Attractions & Culture",
+      text: "Museums, landmarks, history and photo spots.",
       href: "/explore#attractions-culture",
     },
     {
+      icon: Map,
       image:
-        "https://images.unsplash.com/photo-1521791136064-7986c2920216?auto=format&fit=crop&w=900&q=80",
-      tag: "City Guide",
-      title: "Weather, exchange, emergency numbers and useful phrases.",
+        "https://images.unsplash.com/photo-1524231757912-21f4fe3a7200?auto=format&fit=crop&w=900&q=80",
+      title: "City Guide",
+      text: "Weather, exchange, useful numbers and local tips.",
       href: "/explore#city-guide",
     },
     {
+      icon: Mountain,
       image:
         "https://images.unsplash.com/photo-1500534314209-a25ddb2bd429?auto=format&fit=crop&w=900&q=80",
-      tag: "Day Trips",
-      title: "Dajti, Bovilla, Kruja, Berat and more.",
+      title: "Day Trips",
+      text: "Dajti, Bovilla, Kruja, Berat and more.",
       href: "/explore#day-trips",
+    },
+  ];
+
+  const audienceItems = [
+    {
+      icon: Users,
+      label: "Locals",
+      text: "Living in Tirana",
+    },
+    {
+      icon: BriefcaseBusiness,
+      label: "Visitors",
+      text: "Exploring the city",
+    },
+    {
+      icon: GraduationCap,
+      label: "Students",
+      text: "Studying in Tirana",
+    },
+    {
+      icon: LaptopMinimal,
+      label: "Digital Nomads",
+      text: "Working from anywhere",
     },
   ];
 
   return (
     <main className="home-page">
       <section className="home-hero">
-        <div className="hero-left">
-          <div className="hero-leaf-divider">
-            <span>
-              <Leaf size={18} strokeWidth={2.2} />
-            </span>
-          </div>
+        <div className="hero-bg">
+          <img
+            src={tiranaHeroImage}
+            alt="Tirana city view"
+            className="hero-bg-image"
+          />
+        </div>
 
+        <div className="hero-content">
           <h1>
             Discover Tirana <br /> your way.
           </h1>
 
-          <p>
+          <p className="hero-description">
             Plan your day, explore local places, and ask anything about the city
             through a smart guide built for Tirana.
           </p>
 
           <div className="hero-actions">
             <a href="/ask" className="primary-btn">
-              <span>
-                <MessageCircle size={18} strokeWidth={2.4} />
-              </span>
+              <MessageCircle size={18} strokeWidth={2.4} />
               Ask TiranaTips
             </a>
 
             <a href="/explore" className="secondary-btn">
-              <span>
-                <Compass size={18} strokeWidth={2.4} />
-              </span>
+              <Compass size={18} strokeWidth={2.4} />
               Explore the city
             </a>
           </div>
 
-          <div className="hero-audience">
-            {audienceItems.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <span key={item.label}>
-                  <i>
-                    <Icon size={14} strokeWidth={2.3} />
-                  </i>
-                  {item.label}
-                </span>
-              );
-            })}
-          </div>
-        </div>
-
-        <div className="hero-right">
-          <div className="daily-card">
-            <img
-              src={tiranaHeroImage}
-              alt="Illustrated Tirana skyline"
-              className="daily-hero-image"
-            />
-
-            <div className="daily-card-content">
-              <p className="daily-greeting">{greeting}</p>
-              <h2>Ready for today?</h2>
-
-              <div className="daily-meta">
+          <div className="hero-info-bar">
+            <div className="hero-info-item hero-weather-block">
+              <div className="hero-weather-top">
                 <span>
-                  <CalendarDays size={15} strokeWidth={2.2} />
-                  {todayLabel}
+                  <CloudSun size={18} strokeWidth={2.2} />
+                  {weatherLabel}
                 </span>
 
-                <span>
-                  <CloudSun size={15} strokeWidth={2.2} />
-                  {notes?.weather?.label ?? "—"}
-                </span>
+                <i />
 
                 <span>
-                  <Thermometer size={15} strokeWidth={2.2} />
-                  {notes?.weather ? `${notes.weather.temp_c}°C` : "—"}
+                  <Thermometer size={17} strokeWidth={2.2} />
+                  {weatherTemp}
                 </span>
               </div>
 
-              <p className="city-note">
-                {notes?.weather?.alert_text || "Have a great day in Tirana."}
-              </p>
+              <p>{weatherNote}</p>
+            </div>
+
+            <a
+              className="hero-info-item hero-exchange-block"
+              href="https://iliria98.com/"
+              target="_blank"
+              rel="noreferrer"
+              aria-label="Open Iliria 98 exchange rates"
+            >
+              <CircleDollarSign size={26} strokeWidth={2.1} />
+
+              <div>
+                <strong>{preferredCurrency} → ALL</strong>
+                <small>{userRate ? `${userRate.buy} / ${userRate.sell}` : eur ? `${eur.buy} / ${eur.sell}` : "94.5 / 95.2"}</small>
+              </div>
+            </a>
+
+            <div className="hero-info-item hero-date-block">
+              <CalendarDays size={25} strokeWidth={2.1} />
+
+              <div>
+                <strong>{weekday}</strong>
+                <small>{dateWithoutWeekday}</small>
+              </div>
             </div>
           </div>
-
-          <section className="smart-notes-panel">
-            <div className="smart-notes-header">
-              <h3>Smart Local Notes</h3>
-            </div>
-
-            <div className="smart-notes-grid">
-              {smartNotes.map((note) => {
-                const Icon = note.icon;
-                const Card = note.href ? "a" : "article";
-
-                const linkProps = note.href
-                  ? {
-                    href: note.href,
-                    target: "_blank",
-                    rel: "noreferrer",
-                    style: {
-                      color: "inherit",
-                      textDecoration: "none",
-                      cursor: "pointer",
-                    },
-                  }
-                  : {};
-
-                return (
-                  <Card
-                    className={`smart-note-card smart-note-${note.variant}`}
-                    key={note.title}
-                    {...linkProps}
-                  >
-                    <div className="smart-note-content">
-                      <span className="smart-note-icon">
-                        <Icon size={19} strokeWidth={2.3} />
-                      </span>
-
-                      <h4>{note.title}</h4>
-                      <p>{note.label}</p>
-
-                      {note.lines ? (
-                        note.lines.length ? (
-                          note.lines.map((line) => (
-                            <strong
-                              key={line}
-                              style={{
-                                display: "block",
-                                fontSize: "0.82em",
-                                whiteSpace: "nowrap",
-                                overflow: "hidden",
-                                textOverflow: "ellipsis",
-                              }}
-                            >
-                              {line}
-                            </strong>
-                          ))
-                        ) : (
-                          <strong>—</strong>
-                        )
-                      ) : (
-                        <>
-                          <strong>{note.value}</strong>
-                          {note.note && <small>{note.note}</small>}
-                        </>
-                      )}
-                    </div>
-
-                    {note.image && (
-                      <img
-                        src={note.image}
-                        alt=""
-                        className="smart-note-illustration"
-                        aria-hidden="true"
-                      />
-                    )}
-                  </Card>
-                );
-              })}
-            </div>
-          </section>
         </div>
       </section>
 
@@ -392,7 +332,7 @@ function Home() {
                 key={item.title}
               >
                 <span className="right-now-icon">
-                  <Icon size={21} strokeWidth={2.3} />
+                  <Icon size={22} strokeWidth={2.3} />
                 </span>
 
                 <div className="right-now-content">
@@ -419,76 +359,116 @@ function Home() {
           </a>
         </div>
 
-        <div className="news-scroll-container">
-          <div className="news-scroll-track">
-            {news.length === 0 && (
-              <p className="news-empty">Loading headlines…</p>
-            )}
+        <div className="news-carousel-wrap">
+          <button
+            type="button"
+            className="news-side-btn news-side-btn-left"
+            onClick={() => scrollNews("left")}
+            aria-label="Scroll news left"
+          >
+            <ChevronLeft size={22} strokeWidth={2.5} />
+          </button>
 
-            {news.map((item, i) => {
-              const sourceName = {
-                tiranatimes: "Tirana Times",
-                exit: "Exit.al",
-                adn: "Albanian Daily News",
-              }[item.source] || item.source;
+          <div
+            className="news-scroll-container"
+            ref={newsScrollRef}
+            onPointerDown={handleNewsPointerDown}
+            onPointerMove={handleNewsPointerMove}
+            onPointerUp={stopNewsDrag}
+            onPointerLeave={stopNewsDrag}
+            onPointerCancel={stopNewsDrag}
+          >
+            <div className="news-scroll-track">
+              {news.length === 0 && (
+                <p className="news-empty">Loading headlines…</p>
+              )}
 
-              return (
-                <a
-                  className="news-card"
-                  href={item.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  key={`${item.source}-${i}`}
-                >
-                  {item.image_url && (
-                    <div className="news-card-img">
-                      <img
-                        src={item.image_url}
-                        alt={item.title}
-                        loading="lazy"
-                        onError={(e) => {
-                          e.currentTarget.style.display = "none";
-                        }}
-                      />
+              {news.map((item, i) => {
+                const sourceName =
+                  {
+                    tiranatimes: "Tirana Times",
+                    exit: "Exit.al",
+                    adn: "Albanian Daily News",
+                  }[item.source] || item.source;
+
+                return (
+                  <a
+                    className="news-card"
+                    href={item.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    key={`${item.source}-${i}`}
+                    draggable="false"
+                  >
+                    {item.image_url && (
+                      <div className="news-card-img">
+                        <img
+                          src={item.image_url}
+                          alt={item.title}
+                          loading="lazy"
+                          draggable="false"
+                          onError={(e) => {
+                            e.currentTarget.style.display = "none";
+                          }}
+                        />
+                      </div>
+                    )}
+
+                    <div className="news-card-body">
+                      <span className="news-card-source">{sourceName}</span>
+                      <h3>{item.title}</h3>
                     </div>
-                  )}
-                  <div className="news-card-body">
-                    <span className="news-card-source">{sourceName}</span>
-                    <h3>{item.title}</h3>
-                  </div>
-                </a>
-              );
-            })}
+                  </a>
+                );
+              })}
+            </div>
           </div>
+
+          <button
+            type="button"
+            className="news-side-btn news-side-btn-right"
+            onClick={() => scrollNews("right")}
+            aria-label="Scroll news right"
+          >
+            <ChevronRight size={22} strokeWidth={2.5} />
+          </button>
         </div>
       </section>
 
       <section className="explore-preview-section">
-        <div className="explore-preview-intro">
-          <h2>Start exploring Tirana</h2>
+        <div className="section-heading-row explore-heading">
+          <div>
+            <h2>Start exploring Tirana</h2>
+            <p>Choose where to start, then go deeper in Explore.</p>
+          </div>
 
-          <p>
-            Browse food, attractions, events, transport, city guide, day trips
-            and deals from one place.
-          </p>
-
-          <a href="/explore" className="explore-preview-link">
-            Open Explore <span>→</span>
-          </a>
+          <a href="/explore">Open Explore →</a>
         </div>
 
         <div className="explore-preview-grid">
-          {explorePreview.map((item) => (
-            <a className="explore-preview-card" href={item.href} key={item.tag}>
-              <img src={item.image} alt={item.tag} />
+          {explorePreview.map((item) => {
+            const Icon = item.icon;
 
-              <div className="explore-preview-card-content">
-                <h3>{item.tag}</h3>
-                <p>{item.title}</p>
-                <span>→</span>
-              </div>
-            </a>
-          ))}
+            return (
+              <a
+                className="explore-preview-card"
+                href={item.href}
+                key={item.title}
+              >
+                <img src={item.image} alt={item.title} />
+
+                <div className="explore-icon">
+                  <Icon size={22} strokeWidth={2.2} />
+                </div>
+
+                <div className="explore-preview-card-content">
+                  <h3>{item.title}</h3>
+                  <p>{item.text}</p>
+                  <span>Explore →</span>
+                </div>
+              </a>
+            );
+          })}
         </div>
       </section>
     </main>

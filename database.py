@@ -167,6 +167,18 @@ def init_db():
     except sqlite3.OperationalError:
         pass  # column already exists
 
+    # session_owners: maps session_id to the user_id who created it.
+    # This is how we scope the /sessions list so users only see their
+    # own chats. One session has one owner; if the same device is used
+    # by multiple accounts, re-logging creates new sessions under the
+    # new account.
+    c.execute('''
+        CREATE TABLE IF NOT EXISTS session_owners (
+            session_id TEXT PRIMARY KEY,
+            user_id    TEXT NOT NULL
+        )
+    ''')
+
     conn.commit()
     conn.close()
 
@@ -267,6 +279,35 @@ def get_session_name(session_id: str) -> str:
     ).fetchone()
     conn.close()
     return row[0] if row else session_id
+
+
+def ensure_session_owner(session_id: str, user_id: str) -> None:
+    """Record that user_id owns session_id. Only sets on first call — if the
+    session already has an owner this is a no-op, so re-logging on the same
+    device doesn't reassign existing sessions."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        """INSERT OR IGNORE INTO session_owners (session_id, user_id) VALUES (?, ?)""",
+        (session_id, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
+def get_sessions_for_user(user_id: str) -> list[str]:
+    """Return all session_ids owned by this user, newest first."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """SELECT so.session_id
+           FROM session_owners so
+           JOIN messages m ON m.session_id = so.session_id
+           WHERE so.user_id = ?
+           GROUP BY so.session_id
+           ORDER BY MAX(m.id) DESC""",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return [r[0] for r in rows]
 
 
 def get_all_sessions_with_names() -> list[dict]:
@@ -676,6 +717,32 @@ def query_places(
         out.append(d)
     return out
 
+def query_places_by_keyword(keyword: str, limit: int = 10) -> list[dict]:
+    """Search places by keyword in name, category, or neighborhood (LIKE match).
+    Returns parsed dicts with interest_tags/osm_tags as Python objects, not JSON strings.
+    """
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    pattern = f"%{keyword}%"
+    rows = conn.execute(
+        """SELECT * FROM places
+           WHERE LOWER(name) LIKE LOWER(?)
+              OR LOWER(category) LIKE LOWER(?)
+              OR LOWER(neighborhood) LIKE LOWER(?)
+           ORDER BY name ASC
+           LIMIT ?""",
+        (pattern, pattern, pattern, limit),
+    ).fetchall()
+    conn.close()
+    out = []
+    for r in rows:
+        d = dict(r)
+        d["interest_tags"] = json.loads(d["interest_tags"]) if d.get("interest_tags") else []
+        d["osm_tags"] = json.loads(d["osm_tags"]) if d.get("osm_tags") else {}
+        out.append(d)
+    return out
+
+
 def _hash_password(password: str, salt: str) -> str:
     """scrypt KDF → hex digest. Salt is hex. scrypt is memory-hard — a real
     password hash, unlike the plain SHA-256 the old client-side auth used."""
@@ -712,8 +779,10 @@ def create_user(username: str, password: str, display_name: str | None = None, l
             "display_name": display_name or username, "language": language}
  
  
-def verify_user(username: str, password: str) -> dict | None:
-    """Check credentials. Returns {user_id, username, display_name, language} or None."""
+def verify_user(username: str, password: str | None, skip_password: bool = False) -> dict | None:
+    """Check credentials. Returns {user_id, username, display_name, language} or None.
+    When skip_password=True, looks up by username only (used by /auth/me to
+    fetch the stored language without requiring the password again)."""
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     row = conn.execute(
@@ -722,8 +791,9 @@ def verify_user(username: str, password: str) -> dict | None:
     conn.close()
     if not row:
         return None
-    if _hash_password(password, row["salt"]) != row["password_hash"]:
-        return None
+    if not skip_password:
+        if _hash_password(password, row["salt"]) != row["password_hash"]:
+            return None
     return {"user_id": row["user_id"], "username": row["username"],
             "display_name": row["display_name"],
             "language": row["language"] if row["language"] else "en"}

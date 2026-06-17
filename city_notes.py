@@ -48,7 +48,9 @@ _WMO = {
 }
 
 # Currencies worth showing on a city-guide card.
-_WANTED_CCY = ("EUR", "USD", "GBP", "CHF")
+# All currencies the app supports — the Home exchange card dynamically picks
+# the user's preferred currency from this set (see Home.jsx).
+_WANTED_CCY = ("EUR", "USD", "GBP", "CHF", "TRY", "CAD", "AUD")
 
 # In-process cache. Sections are independent: one failing source never
 # blanks the others. None = never fetched successfully.

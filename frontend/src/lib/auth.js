@@ -8,6 +8,7 @@ import { request } from "./api";
 
 const TOKEN_KEY = "tiranatips_session_token";
 const USER_KEY = "tiranatips_user_id";
+const LANG_KEY = "tiranatips_language";
 
 export function getSessionToken() {
   return localStorage.getItem(TOKEN_KEY);
@@ -19,9 +20,24 @@ export function getUserId() {
   return localStorage.getItem(USER_KEY);
 }
 
+/** The user's stored language preference from their last login/register.
+ *  Falls back to "auto" (detect per-request) when no account is linked. */
+export function getUserLanguage() {
+  return localStorage.getItem(LANG_KEY) || "auto";
+}
+
 function store(data) {
   localStorage.setItem(TOKEN_KEY, data.token);
   localStorage.setItem(USER_KEY, data.user_id);
+  if (data.language) {
+    localStorage.setItem(LANG_KEY, data.language);
+  }
+}
+
+function clearStorage() {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(USER_KEY);
+  localStorage.removeItem(LANG_KEY);
 }
 
 
@@ -50,6 +66,21 @@ export async function register(username, password, displayName, language = "en")
   return { display_name: data.display_name };
 }
  
+/** Fetch the authenticated user's full profile from the backend.
+ *  Returns {authenticated, user_id, username, display_name, language}
+ *  or null if not logged in. */
+export async function getUserProfile() {
+  const token = getSessionToken();
+  if (!token) return null;
+  try {
+    return await request("/auth/me", {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+  } catch {
+    return null;
+  }
+}
+
 /** Validate the stored token with the backend. Returns true if a valid
  *  session exists. Public browsing doesn't require this — it only gates
  *  personalization features. */
@@ -63,13 +94,11 @@ export async function checkSession() {
     return true;
   } catch {
     // Token invalid/expired — clear it.
-    localStorage.removeItem(TOKEN_KEY);
-    localStorage.removeItem(USER_KEY);
+    clearStorage();
     return false;
   }
 }
- 
+
 export async function logout() {
-  localStorage.removeItem(TOKEN_KEY);
-  localStorage.removeItem(USER_KEY);
+  clearStorage();
 }

@@ -99,6 +99,10 @@ def _fetch_exit() -> list[dict]:
         if not title or not url:
             continue
 
+        # Ensure the URL is absolute — Exit.al returns relative paths
+        if not url.startswith("http"):
+            url = urljoin(EXIT_URL, url)
+
         # Image — figure > img
         img = article.select_one("figure img")
         image_url = ""
