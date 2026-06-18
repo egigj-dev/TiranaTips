@@ -39,6 +39,10 @@ models/
 .DS_Store
 Thumbs.db
 
+# ── Frontend build artifacts (not needed in the API image) ──
+frontend/node_modules/
+frontend/dist/
+
 # ── Deploy infra (runs on host, not in image) ──
 deploy_webhook.py
 deploy.log

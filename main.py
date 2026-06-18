@@ -37,7 +37,8 @@ from database import (save_message, get_history, save_summary, get_summary,
                        delete_user_preferences, query_events, query_places_by_keyword,
                        prune_events, DB_PATH,
                        save_place, unsave_place, get_saved_places, get_saved_slugs,
-                       get_also_saved, ensure_session_owner, get_sessions_for_user)
+                       get_also_saved, ensure_session_owner, get_sessions_for_user,
+                       get_session_owner, get_summaries_for_user, set_user_language)
 import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
@@ -293,9 +294,16 @@ def get_events_context(
 
 def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
     """Search places by keyword matching against name, category, neighborhood.
+    Falls back to Google Places API (New) Text Search when the local OSM
+    keyword search finds few or no results, so natural-language queries like
+    "Where can I stay near the city center?" still return real places.
+
     Returns (formatted_context, sources_list) where each source has type="place"
     and a maps_url field for the frontend pill.
     """
+    # ------------------------------------------------------------------ #
+    # 1. OSM keyword search (free, local, no API cost)
+    # ------------------------------------------------------------------ #
     # Extract meaningful keywords from the question — skip common stop words
     # so short queries like "good coffee near Blloku" match "coffee" and "Blloku".
     stop_words = {
@@ -310,21 +318,76 @@ def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
 
     # Collect unique places across all keyword searches
     seen_slugs: set[str] = set()
-    places: list[dict] = []
+    osm_places_list: list[dict] = []
     for kw in words:
         results = query_places_by_keyword(kw, limit=limit)
         for p in results:
             if p["slug"] not in seen_slugs:
                 seen_slugs.add(p["slug"])
-                places.append(p)
+                osm_places_list.append(p)
 
     # If the question is very short with no keywords, try the whole question
-    if not places and len(question.strip()) > 2:
+    if not osm_places_list and len(question.strip()) > 2:
         results = query_places_by_keyword(question.strip(), limit=limit)
         for p in results:
             if p["slug"] not in seen_slugs:
                 seen_slugs.add(p["slug"])
-                places.append(p)
+                osm_places_list.append(p)
+
+    # When the question has explicit intent keywords that OSM's keyword
+    # search handles poorly (hotels, accommodation, traditional food, etc.),
+    # trigger Google Places fallback even when OSM returned some results.
+    _intent_keywords = {"stay", "hotel", "accommodation", "hostel", "lodging",
+                        "restaurant", "food", "eat", "cuisine", "cafe", "bar",
+                        "museum", "attraction", "landmark", "shop", "market"}
+    question_words = set(w.lower().strip("?,.!;:") for w in question.split())
+    has_intent = bool(question_words & _intent_keywords)
+
+    # Use OSM when rich enough (>=5 places) AND the question has no strong
+    # intent signal that would benefit from Google's NL understanding.
+    use_osm = len(osm_places_list) >= 5 and not has_intent
+
+    # ------------------------------------------------------------------ #
+    # 2. Google Places fallback when OSM has too few matches OR the
+    #    question has explicit intent keywords that OSM handles poorly.
+    # ------------------------------------------------------------------ #
+    google_places_list: list[dict] = []
+    if GOOGLE_MAPS_API_KEY and (len(osm_places_list) < 3 or has_intent):
+        try:
+            raw = _places_text_search(question)
+            for r in raw[:limit]:
+                display_name = r.get("displayName", {}).get("text", "")
+                if not display_name:
+                    continue
+                loc = r.get("location", {})
+                lat, lon = loc.get("latitude"), loc.get("longitude")
+                maps_url = r.get("googleMapsUri", "")
+                if not maps_url and lat is not None and lon is not None:
+                    maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+                primary_type = r.get("primaryTypeDisplayName", {}).get("text", "")
+                formatted_address = r.get("formattedAddress", "")
+                google_places_list.append({
+                    "name": display_name,
+                    "category": primary_type,
+                    "neighborhood": "",
+                    "address": formatted_address,
+                    "maps_url": maps_url,
+                    "lat": lat,
+                    "lon": lon,
+                })
+        except Exception:
+            # Google Places failed silently — the OSM results (if any) still
+            # flow through below.
+            pass
+
+    # ------------------------------------------------------------------ #
+    # 3. Choose the best result set: prefer OSM when rich enough, otherwise
+    #    Google's richer natural-language matches.
+    # ------------------------------------------------------------------ #
+    if use_osm or not google_places_list:
+        places = osm_places_list
+    else:
+        places = google_places_list
 
     if not places:
         return "", []
@@ -342,8 +405,11 @@ def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
     lines:   list[str]  = []
     sources: list[dict] = []
     for p in places:
-        lat, lon = p.get("lat"), p.get("lon")
-        maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat is not None and lon is not None else ""
+        maps_url = p.get("maps_url", "")
+        if not maps_url:
+            lat, lon = p.get("lat"), p.get("lon")
+            if lat is not None and lon is not None:
+                maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
         parts = [f"**{p['name']}**"]
         if p.get("category"):
             parts.append(f"({p['category']})")
@@ -1168,12 +1234,9 @@ def _build_system_prompt(
         "- If you want to offer more help but the context is exhausted, use this exact "
         "phrasing: \"I don't have more details on that — let me know if you'd like me to "
         "look further.\"\n"
-        "- When mentioning a place (restaurant, cafe, bar, museum, coworking space, hotel, etc.) in your answer, "
-        "always format it as a clickable link with its Google Maps URL. If lat/lon coordinates are available "
-        "in the context, use: [Place Name](https://www.google.com/maps/search/?api=1&query=LAT,LON). "
-        "If coordinates are NOT available, use a text search instead: "
-        "[Place Name](https://www.google.com/maps/search/?api=1&query=PLACE_NAME+Tirana+Albania). "
-        "This way EVERY place mentioned is a clickable link to Google Maps.\n"
+        "- When you mention a place (restaurant, cafe, bar, museum, etc.), refer to it by its "
+        "plain name only. Do NOT write a Markdown link or construct a Google Maps URL yourself — "
+        "the app attaches the correct map link automatically.\n"
         "- For events, include the Maps link when coordinates are available in the context.\n"
         f"{source_note}\n"
         f"CONTEXT:\n{context}"
@@ -1276,6 +1339,18 @@ async def chat_stream(request: Request, req: ChatRequest):
     """
 
     model = req.model or CHOSEN_MODEL
+
+    # Identity comes from the verified token, never the client-sent user_id.
+    # An owned (logged-in) session may only be read/written by its owner; an
+    # un-owned session is anonymous/ephemeral and open until someone claims it.
+    auth_user = _optional_user(request)
+    _session_owner = get_session_owner(req.session_id)
+    if auth_user:
+        req.user_id = auth_user["uid"]
+        if _session_owner and _session_owner != auth_user["uid"]:
+            raise HTTPException(status_code=403, detail="This chat belongs to another account.")
+    elif _session_owner:
+        raise HTTPException(status_code=403, detail="Please log in to continue this chat.")
 
     # Retry housekeeping: drop the previous assistant turn before regenerating
     # so we don't pile two assistant messages on top of each other in history.
@@ -1393,12 +1468,15 @@ async def chat_stream(request: Request, req: ChatRequest):
                 # found in our places database. This catches places the LLM
                 # mentioned but didn't format as links.
                 final_answer = _inject_maps_links(final_answer, places_sources)
+                # Push the link-injected answer back so inline Maps links appear
+                # live — the streamed English tokens were raw (unlinked).
+                yield f"data: {json.dumps({'type': 'final', 'text': final_answer})}\n\n"
 
                 # On retry: user message already in DB → don't duplicate it.
                 if not req.is_retry:
                     save_message(req.session_id, "user", req.question)
-                    if req.user_id:
-                        ensure_session_owner(req.session_id, req.user_id)
+                    if auth_user:
+                        ensure_session_owner(req.session_id, auth_user["uid"])
                     _auto_name_session(req.session_id, req.question)
                 save_message(req.session_id, "assistant", final_answer)
                 _cache[key] = {
@@ -1423,8 +1501,8 @@ async def chat_stream(request: Request, req: ChatRequest):
                     if partial:
                         if not req.is_retry:
                             save_message(req.session_id, "user", req.question)
-                            if req.user_id:
-                                ensure_session_owner(req.session_id, req.user_id)
+                            if auth_user:
+                                ensure_session_owner(req.session_id, auth_user["uid"])
                             _auto_name_session(req.session_id, req.question)
                         save_message(req.session_id, "assistant",
                                     partial + "\n\n_[Response interrupted]_")
@@ -1444,6 +1522,17 @@ async def chat_stream(request: Request, req: ChatRequest):
 @limiter.limit(RATE_LIMIT)
 def chat(request: Request, req: ChatRequest):
     model = req.model or CHOSEN_MODEL
+
+    # Identity from the verified token; owned sessions are owner-only (see
+    # /chat/stream for the rationale).
+    auth_user = _optional_user(request)
+    _session_owner = get_session_owner(req.session_id)
+    if auth_user:
+        req.user_id = auth_user["uid"]
+        if _session_owner and _session_owner != auth_user["uid"]:
+            raise HTTPException(status_code=403, detail="This chat belongs to another account.")
+    elif _session_owner:
+        raise HTTPException(status_code=403, detail="Please log in to continue this chat.")
 
     if req.is_retry:
         _delete_last_assistant_message(req.session_id)
@@ -1510,8 +1599,8 @@ def chat(request: Request, req: ChatRequest):
 
     if not req.is_retry:
         save_message(req.session_id, "user", req.question)
-        if req.user_id:
-            ensure_session_owner(req.session_id, req.user_id)
+        if auth_user:
+            ensure_session_owner(req.session_id, auth_user["uid"])
         _auto_name_session(req.session_id, req.question)
     save_message(req.session_id, "assistant", final_answer)
 
@@ -1611,52 +1700,63 @@ def health():
     return {"status": "ok", "model": CHOSEN_MODEL}
 
 @app.get("/history/{session_id}")
-def get_chat_history(session_id: str):
+def get_chat_history(request: Request, session_id: str):
+    user = _require_user(request)
+    _assert_session_owner(user, session_id)
     return {"messages": get_history(session_id, limit=50)}
 
 @app.get("/summary/{session_id}")
-def get_chat_summary(session_id: str):
+def get_chat_summary(request: Request, session_id: str):
+    user = _require_user(request)
+    _assert_session_owner(user, session_id)
     return {"summary": get_summary(session_id)}
 
 @app.get("/sessions")
-def list_sessions(user_id: str | None = None):
-    if user_id:
-        import sqlite3 as _sq
-        session_ids = get_sessions_for_user(user_id)
-        names = {}
-        if session_ids:
-            conn = _sq.connect(DB_PATH)
-            placeholders = ",".join("?" * len(session_ids))
-            name_rows = conn.execute(
-                f"SELECT session_id, display_name FROM session_names WHERE session_id IN ({placeholders})",
-                session_ids,
-            ).fetchall()
-            conn.close()
-            names = {r[0]: r[1] for r in name_rows}
-        sessions = [
-            {"session_id": sid, "display_name": names.get(sid, sid)}
-            for sid in session_ids
-        ]
-        return {"sessions": sessions}
-    return {"sessions": get_all_sessions_with_names()}
+def list_sessions(request: Request):
+    """The authenticated user's OWN sessions. Identity is taken from the token;
+    a client-supplied user_id is never trusted (and no longer accepted)."""
+    user = _require_user(request)
+    import sqlite3 as _sq
+    session_ids = get_sessions_for_user(user["uid"])
+    names = {}
+    if session_ids:
+        conn = _sq.connect(DB_PATH)
+        placeholders = ",".join("?" * len(session_ids))
+        name_rows = conn.execute(
+            f"SELECT session_id, display_name FROM session_names WHERE session_id IN ({placeholders})",
+            session_ids,
+        ).fetchall()
+        conn.close()
+        names = {r[0]: r[1] for r in name_rows}
+    sessions = [
+        {"session_id": sid, "display_name": names.get(sid, sid)}
+        for sid in session_ids
+    ]
+    return {"sessions": sessions}
 
 @app.get("/summaries")
-def list_summaries():
-    """All sessions with their auto-generated summaries, for the context-picker modal."""
-    return {"summaries": get_all_summaries()}
+def list_summaries(request: Request):
+    """Summaries for the authenticated user's OWN sessions (context picker)."""
+    user = _require_user(request)
+    return {"summaries": get_summaries_for_user(user["uid"])}
 
 @app.patch("/sessions/{session_id}/rename")
-def rename_session_endpoint(session_id: str, req: RenameRequest):
+def rename_session_endpoint(request: Request, session_id: str, req: RenameRequest):
+    user = _require_user(request)
+    _assert_session_owner(user, session_id)
     rename_session(session_id, req.display_name)
     return {"session_id": session_id, "display_name": req.display_name}
 
 @app.delete("/sessions/{session_id}")
-def delete_session(session_id: str):
+def delete_session(request: Request, session_id: str):
+    user = _require_user(request)
+    _assert_session_owner(user, session_id)
     import sqlite3 as _sq
     conn = _sq.connect(DB_PATH)
-    conn.execute("DELETE FROM messages      WHERE session_id=?", (session_id,))
-    conn.execute("DELETE FROM summaries     WHERE session_id=?", (session_id,))
-    conn.execute("DELETE FROM session_names WHERE session_id=?", (session_id,))
+    conn.execute("DELETE FROM messages       WHERE session_id=?", (session_id,))
+    conn.execute("DELETE FROM summaries      WHERE session_id=?", (session_id,))
+    conn.execute("DELETE FROM session_names  WHERE session_id=?", (session_id,))
+    conn.execute("DELETE FROM session_owners WHERE session_id=?", (session_id,))
     conn.commit(); conn.close()
     return {"deleted": session_id}
 
@@ -1756,6 +1856,28 @@ def auth_me(request: Request):
     return {"authenticated": True, "user_id": payload["uid"],
             "username": payload["un"], "display_name": payload["dn"],
             "language": language}
+
+
+class LanguageRequest(BaseModel):
+    language: str = Field(..., min_length=2, max_length=10)
+
+    @field_validator("language", mode="before")
+    @classmethod
+    def validate_language_code(cls, v: str) -> str:
+        if v not in SUPPORTED_LANGUAGES:
+            allowed = ", ".join(sorted(SUPPORTED_LANGUAGES))
+            raise ValueError(f"Unsupported language '{v}'. Options: {allowed}")
+        if v == "auto":
+            raise ValueError("\"auto\" is a chat-time detect mode, not a storable profile language.")
+        return v
+
+
+@app.patch("/auth/language")
+def auth_language(request: Request, req: LanguageRequest):
+    """Update the authenticated user's stored language preference."""
+    user = _require_user(request)
+    set_user_language(user["uid"], req.language)
+    return {"language": req.language}
 
 
 # ---------------------------------------------------------------------------
@@ -2241,7 +2363,7 @@ def also_saved(request: Request, req: AlsoSavedRequest):
 @app.get("/events")
 @limiter.limit("60/minute")
 def list_events(request: Request, days: int = 30, category: str | None = None,
-                limit: int = 50):
+                municipality: str | None = None, limit: int = 50):
     """Upcoming events for the Explore page — canonical (deduped) events from
     today through `days` ahead, soonest first. Reads the same table the chat's
     event answers use, so the two never disagree."""
@@ -2250,7 +2372,7 @@ def list_events(request: Request, days: int = 30, category: str | None = None,
     until = (date.today() + timedelta(days=days)).isoformat()
     events = query_events(
         date_from=today, date_to=until, category=category,
-        canonical_only=True, limit=limit,
+        municipality=municipality, canonical_only=True, limit=limit,
     )
     out = [
         {
@@ -2299,22 +2421,53 @@ def _inject_maps_links(text: str, place_sources: list[dict]) -> str:
 
     place_sources entries must have "title" and "maps_url" keys.
     Skips names already wrapped in [name](url) and names shorter than 3 chars.
+
+    When the initial pass finds no matches, falls back to Google Places API
+    to look up place-sounding names (multi-word capitalized phrases) from
+    the answer itself and inject links for those.
     """
-    if not place_sources or not text:
+    if not text:
         return text
     result = text
-    for ps in place_sources:
-        name = ps.get("title", "").strip()
-        maps_url = ps.get("maps_url", "")
-        if not name or len(name) < 3 or not maps_url:
-            continue
-        # Match name as a whole word, not preceded by '[' (already in a
-        # markdown link) and not followed by a word character or ')'.
-        result = _re.sub(
-            rf"(?<!\w)(?<!\[)({_re.escape(name)})(?!\w|\)])",
-            rf"[\1]({maps_url})",
+    if place_sources:
+        for ps in place_sources:
+            name = ps.get("title", "").strip()
+            maps_url = ps.get("maps_url", "")
+            if not name or len(name) < 3 or not maps_url:
+                continue
+            result = _re.sub(
+                rf"(?<!\w)(?<!\[)({_re.escape(name)})(?!\w|\)])",
+                rf"[\1]({maps_url})",
+                result,
+            )
+    # Post-hoc Google enrichment: if the initial pass didn't change anything
+    # (or had nothing to match), extract place-sounding names from the answer
+    # and look them up via Google Places API.
+    if GOOGLE_MAPS_API_KEY and result == text:
+        existing_names = {ps.get("title", "").strip().lower() for ps in place_sources}
+        candidates = _re.findall(
+            r"(?<![\w\[])([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)(?![\w\)])",
             result,
         )
+        seen: set[str] = set()
+        for cname in candidates:
+            cname = cname.strip()
+            key = cname.lower()
+            if key in existing_names or key in seen or len(cname) < 6:
+                continue
+            seen.add(key)
+            try:
+                raw = _places_text_search(cname)
+                for r in raw[:1]:
+                    mu = r.get("googleMapsUri", "")
+                    if mu:
+                        result = _re.sub(
+                            rf"(?<!\w)(?<!\[)({_re.escape(cname)})(?!\w|\)])",
+                            rf"[\1]({mu})",
+                            result,
+                        )
+            except Exception:
+                pass
     return result
 
 
@@ -2327,6 +2480,22 @@ def _require_user(request: Request) -> dict:
     if not payload:
         raise HTTPException(status_code=401, detail="Login required")
     return payload
+
+
+def _optional_user(request: Request) -> dict | None:
+    """Like _require_user but returns None instead of raising when no valid
+    token is present. Used by endpoints that allow anonymous use (chat) yet
+    must trust the token over any client-sent identity when one IS present."""
+    auth = request.headers.get("authorization", "")
+    token = auth[7:] if auth.lower().startswith("bearer ") else auth
+    return _verify_token(token) if token else None
+
+
+def _assert_session_owner(user: dict, session_id: str) -> None:
+    """Raise unless `user` owns `session_id`. Returns 404 (not 403) so a
+    non-owner can't even confirm a session exists."""
+    if get_session_owner(session_id) != user["uid"]:
+        raise HTTPException(status_code=404, detail="Session not found")
  
  
 class SaveRequest(BaseModel):

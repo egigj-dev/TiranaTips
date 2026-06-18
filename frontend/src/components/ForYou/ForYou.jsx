@@ -1,11 +1,19 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import "./foryou.css";
 import forYouHeroBg from "../../assets/for-you.png";
 import Register from "../../components/Authentication/Register";
 import Login from "../../components/Authentication/Login";
 import loggedSkyline from "../../assets/skyline.png";
 
-import { getPreferences, getSavedPlaces, getSessionToken, getRecommendedPlaces } from "../../lib/api";
+import {
+  getPreferences,
+  getSavedPlaces,
+  getSessionToken,
+  getRecommendedPlaces,
+  getUserProfile,
+  updateLanguage,
+  setStoredLanguage,
+} from "../../lib/api";
 
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
@@ -18,22 +26,21 @@ import {
   CalendarDays,
   MapPinned,
   Sparkles,
-  Bell,
-  Gauge,
-  Globe2,
-  Pencil,
-  LogOut,
   Bookmark,
   X,
   Map,
   MapPin,
-  Star,
   Navigation,
   Home,
   BookOpen,
   Camera,
   Laptop,
   BriefcaseBusiness,
+  Pencil,
+  ChevronLeft,
+  ChevronRight,
+  Compass,
+  Tag,
 } from "lucide-react";
 
 const mapMarkerIcon = new L.Icon({
@@ -65,50 +72,72 @@ const INTEREST_LABELS = {
   study_work_cafes: "Study & work cafés",
 };
 
+// Concrete UI languages a user can pick for their profile. Mirrors the
+// backend's SUPPORTED_LANGUAGES (minus "auto", which is a chat-time detect
+// mode, not a stored preference).
+const LANGUAGE_OPTIONS = [
+  { code: "en", label: "English" },
+  { code: "sq", label: "Shqip" },
+  { code: "it", label: "Italiano" },
+  { code: "de", label: "Deutsch" },
+  { code: "fr", label: "Français" },
+  { code: "es", label: "Español" },
+  { code: "tr", label: "Türkçe" },
+  { code: "el", label: "Ελληνικά" },
+  { code: "ru", label: "Русский" },
+  { code: "zh", label: "中文" },
+  { code: "ar", label: "العربية" },
+];
+
 const prettify = (token) =>
   token.charAt(0).toUpperCase() + token.slice(1).replace(/_/g, " ");
 
 const label = (map, token) => (token ? map[token] || prettify(token) : null);
 
-function ForYou() {
+function ForYou({ isAuthenticated }) {
   const [authView, setAuthView] = useState(null);
   const [prefs, setPrefs] = useState(null);
-  // Real auth: logged in iff a session token exists. No manual toggle.
+  // Account profile (display_name, language). Language lives on the account,
+  // NOT in preferences — reading it from prefs is why it showed "Not set".
+  const [profile, setProfile] = useState(null);
+  // Real auth: logged in iff a session token exists.
   const [isLoggedIn, setIsLoggedIn] = useState(() => !!getSessionToken());
 
   const refreshPrefs = useCallback(() => {
-    setIsLoggedIn(!!getSessionToken());
+    const loggedIn = !!getSessionToken();
+    setIsLoggedIn(loggedIn);
+    if (!loggedIn) {
+      setPrefs(null);
+      setProfile(null);
+      return;
+    }
     getPreferences()
-      .then((p) => setPrefs(p))
-      .catch((err) => {
-        console.error("Failed to load preferences:", err);
-      });
+      .then(setPrefs)
+      .catch((err) => console.error("Failed to load preferences:", err));
+    getUserProfile()
+      .then(setProfile)
+      .catch(() => setProfile(null));
   }, []);
 
+  // Re-sync whenever auth changes app-wide — e.g. logging in/out from the nav
+  // bar while already on this page. (Logout now lives only in the nav bar.)
   useEffect(() => {
     refreshPrefs();
-  }, [refreshPrefs]);
-
-  const handleLogout = async () => {
-    const { logout } = await import("../../lib/api");
-    await logout();
-    setIsLoggedIn(false);
-    setPrefs(null);
-  };
+  }, [isAuthenticated, refreshPrefs]);
 
   return (
     <main className="for-you-page">
       {isLoggedIn ? (
         <LoggedInForYou
           prefs={prefs}
-          onLogout={handleLogout}
+          profile={profile}
           onEditPreferences={() => setAuthView("preferences")}
+          onLanguageChanged={refreshPrefs}
         />
       ) : (
         <GuestForYou
           forYouHeroBg={forYouHeroBg}
           onOpenRegister={() => setAuthView("register")}
-          onOpenLogin={() => setAuthView("login")}
         />
       )}
 
@@ -152,7 +181,7 @@ function ForYou() {
   );
 }
 
-function GuestForYou({ forYouHeroBg, onOpenRegister, onOpenLogin }) {
+function GuestForYou({ forYouHeroBg, onOpenRegister }) {
   const benefits = [
     {
       icon: "♡",
@@ -172,36 +201,16 @@ function GuestForYou({ forYouHeroBg, onOpenRegister, onOpenLogin }) {
     {
       icon: "⌘",
       title: "Manage preferences",
-      text: "Update language, currency, budget, notifications and saved areas anytime.",
+      text: "Update language, currency, budget and saved areas anytime.",
     },
   ];
 
   const modes = [
-    {
-      icon: Home,
-      title: "Local",
-      text: "Live like a local",
-    },
-    {
-      icon: BookOpen,
-      title: "Student",
-      text: "Budget friendly & practical",
-    },
-    {
-      icon: Camera,
-      title: "Tourist",
-      text: "Discover & explore",
-    },
-    {
-      icon: Laptop,
-      title: "Digital Nomad",
-      text: "Work, stay & explore",
-    },
-    {
-      icon: BriefcaseBusiness,
-      title: "Business Visitor",
-      text: "Work trips & meetings",
-    },
+    { icon: Home, title: "Local", text: "Live like a local" },
+    { icon: BookOpen, title: "Student", text: "Budget friendly & practical" },
+    { icon: Camera, title: "Tourist", text: "Discover & explore" },
+    { icon: Laptop, title: "Digital Nomad", text: "Work, stay & explore" },
+    { icon: BriefcaseBusiness, title: "Business Visitor", text: "Work trips & meetings" },
   ];
 
   return (
@@ -226,10 +235,6 @@ function GuestForYou({ forYouHeroBg, onOpenRegister, onOpenLogin }) {
           <div className="guest-actions">
             <button type="button" className="create-btn" onClick={onOpenRegister}>
               Create account
-            </button>
-
-            <button type="button" className="login-btn" onClick={onOpenLogin}>
-              Log in
             </button>
           </div>
         </section>
@@ -299,17 +304,16 @@ function GuestForYou({ forYouHeroBg, onOpenRegister, onOpenLogin }) {
   );
 }
 
-function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
+function LoggedInForYou({ prefs, profile, onEditPreferences, onLanguageChanged }) {
   const [selectedArea, setSelectedArea] = useState(null);
   const [showFullMap, setShowFullMap] = useState(false);
   const [showSavedModal, setShowSavedModal] = useState(false);
 
-  // Real saved places (login-required). Replaces the old hardcoded mock list.
   const [savedPlaces, setSavedPlaces] = useState([]);
-
-  // Recommended places based on user interests (login-required).
   const [recommended, setRecommended] = useState([]);
-  const [recommendedLoading, setRecommendedLoading] = useState(false);
+
+  const recScrollRef = useRef(null);
+  const [recOverflow, setRecOverflow] = useState(false);
 
   useEffect(() => {
     if (!getSessionToken()) {
@@ -320,23 +324,40 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
     getSavedPlaces()
       .then((r) => setSavedPlaces(r.places || []))
       .catch(() => setSavedPlaces([]));
-    // Load interest-based recommendations once prefs are available
-    setRecommendedLoading(true);
     import("../../lib/api").then(({ getUserId }) => {
       getRecommendedPlaces(getUserId())
         .then((r) => setRecommended(r.places || []))
-        .catch(() => setRecommended([]))
-        .finally(() => setRecommendedLoading(false));
+        .catch(() => setRecommended([]));
     });
   }, []);
+
+  const firstName = (profile?.display_name || "").trim().split(" ")[0];
+
+  // Language is controlled locally for instant feedback, then persisted.
+  const [langValue, setLangValue] = useState(profile?.language || "en");
+  useEffect(() => {
+    setLangValue(profile?.language || "en");
+  }, [profile]);
+
+  const handleLanguageSelect = async (e) => {
+    const lang = e.target.value;
+    const previous = langValue;
+    setLangValue(lang); // optimistic
+    try {
+      await updateLanguage(lang);
+      setStoredLanguage(lang); // so Ask uses the new language immediately
+      onLanguageChanged?.();
+    } catch (err) {
+      console.error("Failed to update language:", err);
+      setLangValue(previous);
+    }
+  };
 
   const interests =
     prefs?.interests?.length > 0
       ? prefs.interests.map((i) => label(INTEREST_LABELS, i))
       : [];
 
-  // Real saves carry neighborhood (not "area") and lat/lng. Places with
-  // coordinates can appear on the map; the area modal filters by neighborhood.
   const areaSavedPlaces = selectedArea
     ? savedPlaces.filter((place) => place.neighborhood === selectedArea)
     : [];
@@ -352,79 +373,57 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
       })
     : "—";
 
-  const summaryItems = [
+  const scrollRecommended = (dir) => {
+    if (!recScrollRef.current) return;
+    recScrollRef.current.scrollBy({
+      left: dir === "left" ? -320 : 320,
+      behavior: "smooth",
+    });
+  };
+
+  // Only surface the scroll chevrons when the rail actually overflows —
+  // otherwise they'd sit there doing nothing with just 2–3 recommendations.
+  useEffect(() => {
+    const el = recScrollRef.current;
+    if (!el) return;
+    const check = () => setRecOverflow(el.scrollWidth > el.clientWidth + 4);
+    check();
+    window.addEventListener("resize", check);
+    return () => window.removeEventListener("resize", check);
+  }, [recommended]);
+
+  // Editable, backend-backed preferences only. Notifications / travel pace /
+  // city style were removed — no backend to store them. Language has its own
+  // inline selector row; these open the edit flow.
+  const preferences = [
     {
       icon: WalletCards,
       label: "Budget",
       value: label(TIER_LABELS, prefs?.price_tier) || "Not set",
-      className: "summary-budget",
     },
     {
       icon: Coins,
       label: "Currency",
       value: prefs?.currency || "Not set",
-      className: "summary-currency",
     },
-    {
-      icon: Languages,
-      label: "Language",
-      value: prefs?.language || "Not set",
-      className: "summary-language",
-    },
-    {
-      icon: CalendarDays,
-      label: "Member since",
-      value: memberSince,
-      className: "summary-date",
-    },
-  ];
-
-  // Only the fields that have real backend storage are shown with values; the
-  // rest are honestly "Not set" until their models land (areas/style/pace/
-  // notifications have no backend yet).
-  const preferences = [
     {
       icon: MapPinned,
       label: "Preferred areas",
-      value: prefs?.neighborhoods?.length > 0
-        ? prefs.neighborhoods.join(", ")
-        : "Not set",
-    },
-    {
-      icon: Sparkles,
-      label: "City style",
-      value: "Not set",
-    },
-    {
-      icon: Bell,
-      label: "Notifications",
-      value: "Not set",
-    },
-    {
-      icon: Gauge,
-      label: "Travel pace",
-      value: "Not set",
-    },
-    {
-      icon: Globe2,
-      label: "Content language",
-      value: prefs?.language ? label({}, prefs.language) : "Not set",
+      value:
+        prefs?.neighborhoods?.length > 0
+          ? prefs.neighborhoods.join(", ")
+          : "Not set",
     },
   ];
 
-  const openAreaModal = (area) => {
-    setSelectedArea(area);
-  };
-
-  const closeAreaModal = () => {
-    setSelectedArea(null);
-  };
+  const openAreaModal = (area) => setSelectedArea(area);
+  const closeAreaModal = () => setSelectedArea(null);
 
   return (
     <section className="logged-page">
       <section className="logged-hero-dashboard">
         <div className="logged-hero-text">
-          <h1>Hello!</h1>
+          <h1>Hello{firstName ? `, ${firstName}` : ""}!</h1>
           <p>
             Welcome back to your TiranaTips.
             <br />
@@ -435,46 +434,42 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
         <img src={loggedSkyline} alt="" className="logged-skyline-image" />
 
         <div className="logged-hero-actions">
-          <button type="button" className="edit-profile-btn" onClick={onEditPreferences}>
+          <button
+            type="button"
+            className="edit-profile-btn"
+            onClick={onEditPreferences}
+          >
             <Pencil size={17} strokeWidth={2.4} />
             Edit profile
-          </button>
-
-          <button type="button" className="hero-logout-btn" onClick={onLogout}>
-            <LogOut size={17} strokeWidth={2.4} />
-            Logout
           </button>
         </div>
       </section>
 
-      <section className="profile-summary-strip">
+      {/* Slim identity strip — budget/currency/language moved into the
+          Preferences card below, so nothing is double-listed. */}
+      <section className="profile-summary-strip slim-strip">
         <div className="profile-user-mini">
-          <div className="profile-avatar">T</div>
+          <div className="profile-avatar">
+            {(firstName[0] || "T").toUpperCase()}
+          </div>
 
           <div>
             <h2>
-              Your profile{" "}
+              {profile?.display_name || "Your profile"}{" "}
               <span>{label(MODE_LABELS, prefs?.mode) || "No mode set"}</span>
             </h2>
           </div>
         </div>
 
-        {summaryItems.map((item) => {
-          const Icon = item.icon;
-
-          return (
-            <div className={`summary-item ${item.className}`} key={item.label}>
-              <span>
-                <Icon size={18} strokeWidth={2.2} />
-              </span>
-
-              <div>
-                <p>{item.label}</p>
-                <strong>{item.value}</strong>
-              </div>
-            </div>
-          );
-        })}
+        <div className="summary-item summary-date">
+          <span>
+            <CalendarDays size={18} strokeWidth={2.2} />
+          </span>
+          <div>
+            <p>Member since</p>
+            <strong>{memberSince}</strong>
+          </div>
+        </div>
       </section>
 
       {/* ── Places you'll love ── */}
@@ -487,214 +482,293 @@ function LoggedInForYou({ prefs, onLogout, onEditPreferences }) {
             </h2>
             <p>Based on your interests</p>
           </div>
-          <div className="recommended-scroll">
-            {recommended.map((place) => (
-              <a
-                key={place.slug}
-                className="recommended-card"
-                href={`https://www.google.com/maps/search/${encodeURIComponent(place.name)}`}
-                target="_blank"
-                rel="noreferrer"
-              >
-                <div className="recommended-card-body">
-                  <h3>{place.name}</h3>
-                  <p>
-                    {place.category}
-                    {place.neighborhood ? ` · ${place.neighborhood}` : ""}
-                    {place.price_tier ? ` · ${"$".repeat(place.price_tier)}` : ""}
-                  </p>
-                </div>
-                <div className="recommended-card-tags">
-                  {(place.interest_tags || []).slice(0, 3).map((tag) => (
-                    <span key={tag} className="mini-tag">{tag}</span>
-                  ))}
-                </div>
-              </a>
-            ))}
-          </div>
-        </section>
-      )}
 
-      <section className="dashboard-grid">
-        <article className="dashboard-card saved-dashboard-card">
-          <div className="card-title-row">
-            <div className="dashboard-icon-title compact-title">
-              <span>
-                <Bookmark size={20} strokeWidth={2.3} />
-              </span>
-
-              <div>
-                <h2>Saved places</h2>
-                <p>Your favorite spots, all in one place.</p>
-              </div>
-            </div>
-
-            {savedPlaces.length > 0 && (
+          <div className="recommended-carousel">
+            {recOverflow && (
               <button
                 type="button"
-                className="view-all-btn"
-                onClick={() => setShowSavedModal(true)}
+                className="rec-side-btn rec-side-left"
+                onClick={() => scrollRecommended("left")}
+                aria-label="Scroll left"
               >
-                View all
+                <ChevronLeft size={20} strokeWidth={2.5} />
               </button>
             )}
-          </div>
 
-          {savedPlaces.length === 0 ? (
-            <p className="saved-empty">
-              No saved places yet. Head to Explore and tap the bookmark on any
-              place to keep it here.
-            </p>
-          ) : (
-            <div className="saved-dashboard-grid">
-              {savedPlaces.slice(0, 5).map((place) => (
-                <article className="saved-place-card" key={place.slug}>
-                  <div className="saved-place-content">
+            <div className="recommended-scroll" ref={recScrollRef}>
+              {recommended.map((place) => (
+                <a
+                  key={place.slug}
+                  className="recommended-card"
+                  href={`https://www.google.com/maps/search/${encodeURIComponent(
+                    place.name
+                  )}`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  <div className="recommended-card-body">
                     <h3>{place.name}</h3>
                     <p>
                       {place.category}
                       {place.neighborhood ? ` · ${place.neighborhood}` : ""}
+                      {place.price_tier
+                        ? ` · ${"$".repeat(place.price_tier)}`
+                        : ""}
                     </p>
                   </div>
-                </article>
+                  <div className="recommended-card-tags">
+                    {(place.interest_tags || []).slice(0, 3).map((tag) => (
+                      <span key={tag} className="mini-tag">
+                        {tag}
+                      </span>
+                    ))}
+                  </div>
+                </a>
               ))}
             </div>
-          )}
-        </article>
 
-        <article className="dashboard-card interests-card">
-          <div className="card-title-row">
-            <div>
-              <h2>Your interests</h2>
-              <p>Used to personalize your city tips.</p>
-            </div>
-
-            <button type="button">♡</button>
+            {recOverflow && (
+              <button
+                type="button"
+                className="rec-side-btn rec-side-right"
+                onClick={() => scrollRecommended("right")}
+                aria-label="Scroll right"
+              >
+                <ChevronRight size={20} strokeWidth={2.5} />
+              </button>
+            )}
           </div>
+        </section>
+      )}
 
-          {interests.length === 0 ? (
-            <p className="saved-empty">
-              No interests selected yet. Edit your profile to choose what you
-              like.
-            </p>
-          ) : (
-            <div className="interest-pill-grid">
-              {interests.map((interest) => (
-                <span key={interest}>{interest}</span>
-              ))}
-            </div>
-          )}
+      {/* Option B: left column (Saved + Map) is wide; right rail stacks
+          Interests + Preferences. No more orphaned half-empty map row. */}
+      <section className="dashboard-grid">
+        <div className="dashboard-col-main">
+          <article className="dashboard-card saved-dashboard-card">
+            <div className="card-title-row">
+              <div className="dashboard-icon-title compact-title">
+                <span>
+                  <Bookmark size={20} strokeWidth={2.3} />
+                </span>
 
-          <button type="button" className="text-link-btn" onClick={onEditPreferences}>
-            Edit interests →
-          </button>
-        </article>
-
-        <article className="dashboard-card preferences-dashboard-card">
-          <h2>Your preferences</h2>
-          <p>Quick overview of your settings.</p>
-
-          <div className="settings-list">
-            {preferences.map((item) => {
-              const Icon = item.icon;
-
-              return (
-                <div key={item.label}>
-                  <span>
-                    <Icon size={15} strokeWidth={2.3} />
-                  </span>
-                  <strong>{item.label}</strong>
-                  <p>{item.value}</p>
-                  <b>›</b>
+                <div>
+                  <h2>Saved places</h2>
+                  <p>Your favorite spots, all in one place.</p>
                 </div>
-              );
-            })}
-          </div>
-        </article>
+              </div>
 
-        <article className="dashboard-card personal-map-card">
-          <div className="personal-map-header">
-            <span>
-              <Map size={20} strokeWidth={2.3} />
-            </span>
-
-            <div>
-              <h2>Your Tirana map</h2>
-              <p>Your favorite areas, all in one place.</p>
+              {savedPlaces.length > 0 && (
+                <button
+                  type="button"
+                  className="view-all-btn"
+                  onClick={() => setShowSavedModal(true)}
+                >
+                  View all
+                </button>
+              )}
             </div>
-          </div>
 
-          <div className="mini-map-preview real-mini-map">
-            <MapContainer
-              center={[41.323, 19.819]}
-              zoom={13}
-              scrollWheelZoom={false}
-              dragging={false}
-              zoomControl={false}
-              attributionControl={false}
-              doubleClickZoom={false}
-              keyboard={false}
-              className="leaflet-mini-map"
-            >
-              <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
-            </MapContainer>
+            {savedPlaces.length === 0 ? (
+              <a className="empty-cta empty-cta-saved" href="/explore">
+                <span className="empty-cta-icon">
+                  <Compass size={22} strokeWidth={2.4} />
+                </span>
+                <strong>Find places to save</strong>
+                <small>Tap the bookmark on any place in Explore.</small>
+              </a>
+            ) : (
+              <div className="saved-dashboard-grid">
+                {savedPlaces.slice(0, 5).map((place) => (
+                  <article className="saved-place-card" key={place.slug}>
+                    <div className="saved-place-content">
+                      <h3>{place.name}</h3>
+                      <p>
+                        {place.category}
+                        {place.neighborhood ? ` · ${place.neighborhood}` : ""}
+                      </p>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </article>
 
-            <div className="mini-map-soft-overlay"></div>
+          <article className="dashboard-card personal-map-card">
+            <div className="personal-map-header">
+              <span>
+                <Map size={20} strokeWidth={2.3} />
+              </span>
+
+              <div>
+                <h2>Your Tirana map</h2>
+                <p>Your favorite areas, all in one place.</p>
+              </div>
+            </div>
+
+            <div className="mini-map-preview real-mini-map">
+              <MapContainer
+                center={[41.323, 19.819]}
+                zoom={13}
+                scrollWheelZoom={false}
+                dragging={false}
+                zoomControl={false}
+                attributionControl={false}
+                doubleClickZoom={false}
+                keyboard={false}
+                className="leaflet-mini-map"
+              >
+                <TileLayer url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png" />
+              </MapContainer>
+
+              <div className="mini-map-soft-overlay"></div>
+
+              <button
+                type="button"
+                className="map-area-chip chip-blloku"
+                onClick={() => openAreaModal("Blloku")}
+              >
+                Blloku
+              </button>
+
+              <button
+                type="button"
+                className="map-area-chip chip-center"
+                onClick={() => openAreaModal("Qendra")}
+              >
+                Qendra
+              </button>
+
+              <button
+                type="button"
+                className="map-area-chip chip-liqeni"
+                onClick={() => openAreaModal("Liqeni / Grand Park")}
+              >
+                Liqeni
+              </button>
+            </div>
+
+            <div className="map-preferred-row">
+              <span>Browse areas:</span>
+
+              <button type="button" onClick={() => openAreaModal("Blloku")}>
+                Blloku
+              </button>
+
+              <i>·</i>
+
+              <button type="button" onClick={() => openAreaModal("Qendra")}>
+                Qendra
+              </button>
+
+              <i>·</i>
+
+              <button
+                type="button"
+                onClick={() => openAreaModal("Liqeni / Grand Park")}
+              >
+                Liqeni
+              </button>
+            </div>
 
             <button
               type="button"
-              className="map-area-chip chip-blloku"
-              onClick={() => openAreaModal("Blloku")}
+              className="open-map-btn"
+              onClick={() => setShowFullMap(true)}
             >
-              Blloku
+              <Navigation size={17} strokeWidth={2.4} />
+              Open personal map
             </button>
+          </article>
+        </div>
 
-            <button
-              type="button"
-              className="map-area-chip chip-center"
-              onClick={() => openAreaModal("Qendra")}
-            >
-              Qendra
-            </button>
+        <div className="dashboard-col-side">
+          <article className="dashboard-card interests-card">
+            <div className="card-title-row">
+              <div>
+                <h2>Your interests</h2>
+                <p>Used to personalize your city tips.</p>
+              </div>
+            </div>
 
-            <button
-              type="button"
-              className="map-area-chip chip-liqeni"
-              onClick={() => openAreaModal("Liqeni / Grand Park")}
-            >
-              Liqeni
-            </button>
-          </div>
+            {interests.length === 0 ? (
+              <button
+                type="button"
+                className="empty-cta empty-cta-interests"
+                onClick={onEditPreferences}
+              >
+                <span className="empty-cta-icon">
+                  <Tag size={22} strokeWidth={2.4} />
+                </span>
+                <strong>Add interests</strong>
+                <small>Choose what you like to personalize tips.</small>
+              </button>
+            ) : (
+              <>
+                <div className="interest-pill-grid">
+                  {interests.map((interest) => (
+                    <span key={interest}>{interest}</span>
+                  ))}
+                </div>
 
-          <div className="map-preferred-row">
-            <span>Browse areas:</span>
+                <button
+                  type="button"
+                  className="text-link-btn"
+                  onClick={onEditPreferences}
+                >
+                  Edit interests →
+                </button>
+              </>
+            )}
+          </article>
 
-            <button type="button" onClick={() => openAreaModal("Blloku")}>
-              Blloku
-            </button>
+          <article className="dashboard-card preferences-dashboard-card">
+            <h2>Your preferences</h2>
+            <p>Quick overview of your settings.</p>
 
-            <i>·</i>
+            <div className="settings-list">
+              {preferences.map((item) => {
+                const Icon = item.icon;
 
-            <button type="button" onClick={() => openAreaModal("Qendra")}>
-              Qendra
-            </button>
+                return (
+                  <button
+                    type="button"
+                    className="settings-row"
+                    key={item.label}
+                    onClick={onEditPreferences}
+                  >
+                    <span>
+                      <Icon size={15} strokeWidth={2.3} />
+                    </span>
+                    <strong>{item.label}</strong>
+                    <p>{item.value}</p>
+                    <b>›</b>
+                  </button>
+                );
+              })}
 
-            <i>·</i>
-
-            <button type="button" onClick={() => openAreaModal("Liqeni / Grand Park")}>
-              Liqeni
-            </button>
-          </div>
-
-          <button
-            type="button"
-            className="open-map-btn"
-            onClick={() => setShowFullMap(true)}
-          >
-            <Navigation size={17} strokeWidth={2.4} />
-            Open personal map
-          </button>
-        </article>
+              {/* Language — editable inline (account-level, persisted via API) */}
+              <div className="settings-row settings-row-lang">
+                <span>
+                  <Languages size={15} strokeWidth={2.3} />
+                </span>
+                <strong>Language</strong>
+                <select
+                  className="lang-select"
+                  value={langValue}
+                  onChange={handleLanguageSelect}
+                  aria-label="Profile language"
+                >
+                  {LANGUAGE_OPTIONS.map((l) => (
+                    <option key={l.code} value={l.code}>
+                      {l.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+          </article>
+        </div>
       </section>
 
       {showSavedModal && (

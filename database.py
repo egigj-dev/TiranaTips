@@ -293,6 +293,38 @@ def ensure_session_owner(session_id: str, user_id: str) -> None:
     conn.commit()
     conn.close()
 
+def get_session_owner(session_id: str) -> str | None:
+    """Return the user_id that owns this session, or None if un-owned."""
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute(
+        "SELECT user_id FROM session_owners WHERE session_id=?", (session_id,)
+    ).fetchone()
+    conn.close()
+    return row[0] if row else None
+
+
+def get_summaries_for_user(user_id: str) -> list[dict]:
+    """Summaries for sessions OWNED by this user — same shape as
+    get_all_summaries(), but scoped so the picker never exposes another
+    account's conversations."""
+    conn = sqlite3.connect(DB_PATH)
+    rows = conn.execute(
+        """SELECT s.session_id, s.summary, s.updated_at,
+                  COALESCE(n.display_name, s.session_id) AS display_name,
+                  (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.session_id) AS message_count
+           FROM summaries s
+           JOIN session_owners so ON so.session_id = s.session_id
+           LEFT JOIN session_names n ON n.session_id = s.session_id
+           WHERE so.user_id = ?
+           ORDER BY s.updated_at DESC""",
+        (user_id,),
+    ).fetchall()
+    conn.close()
+    return [
+        {"session_id": r[0], "summary": r[1], "updated_at": r[2],
+         "display_name": r[3], "message_count": r[4]}
+        for r in rows
+    ]
 
 def get_sessions_for_user(user_id: str) -> list[str]:
     """Return all session_ids owned by this user, newest first."""
@@ -797,6 +829,17 @@ def verify_user(username: str, password: str | None, skip_password: bool = False
     return {"user_id": row["user_id"], "username": row["username"],
             "display_name": row["display_name"],
             "language": row["language"] if row["language"] else "en"}
+
+
+def set_user_language(user_id: str, language: str) -> None:
+    """Update the stored language for a user account."""
+    conn = sqlite3.connect(DB_PATH)
+    conn.execute(
+        "UPDATE users SET language=? WHERE user_id=?",
+        (language, user_id),
+    )
+    conn.commit()
+    conn.close()
 
 
 def save_place(user_id: str, slug: str, payload: dict | None = None) -> bool:

@@ -56,7 +56,7 @@ function App() {
         <Route path="/explore" element={<Explore />} />
         <Route path="/ask" element={<Ask />} />
         <Route path="/global" element={<Global />} />
-        <Route path="/foryou" element={<ForYou />} />
+        <Route path="/foryou" element={<ForYou isAuthenticated={isAuthenticated} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 

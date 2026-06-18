@@ -256,9 +256,20 @@
 }
 
 .hero-exchange-block svg,
+.hero-exchange-block .currency-symbol-icon,
 .hero-date-block svg {
   flex: 0 0 auto;
   color: #1f5a2e;
+}
+
+.currency-symbol-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  font-size: 18px;
+  font-weight: 900;
 }
 
 .hero-exchange-block strong,

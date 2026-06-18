@@ -242,6 +242,41 @@
   font-size: 18px;
 }
 
+/* Language picker in sidebar */
+.ask-language-picker {
+  margin-top: 28px;
+}
+
+.ask-language-picker h3 {
+  margin: 0 0 12px;
+  color: #102116;
+  font-size: 14px;
+  font-weight: 900;
+}
+
+.ask-language-picker select {
+  width: 100%;
+  height: 44px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(42, 74, 45, 0.15);
+  background: rgba(255, 255, 255, 0.82);
+  color: #102116;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  appearance: auto;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.ask-language-picker select:hover,
+.ask-language-picker select:focus {
+  border-color: rgba(31, 90, 46, 0.4);
+  box-shadow: 0 0 0 3px rgba(31, 90, 46, 0.08);
+  outline: none;
+}
+
 /* Chat column */
 .assistant-chat {
   min-width: 0;
@@ -409,6 +444,27 @@
 .markdown-content h4 {
   margin: 12px 0 6px 0;
   color: #1f5a2e;
+}
+
+/* Place mentions in answers — highlighted, clickable, open Google Maps */
+.markdown-content a.place-link {
+  padding: 1px 7px;
+  border-radius: 7px;
+  background: #edf3e5;
+  border: 1px solid rgba(31, 90, 46, 0.18);
+  color: #1f5a2e;
+  font-weight: 700;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.markdown-content a.place-link::before {
+  content: "📍 ";
+}
+
+.markdown-content a.place-link:hover {
+  background: #e0ead7;
+  border-color: rgba(31, 90, 46, 0.35);
 }
 
 /* Input */
@@ -1557,4 +1613,58 @@
   .context-picker-table td {
     padding: 10px 8px;
   }
+}
+
+
+/* Place result cards inside chat answers — click opens the map modal */
+.message-place-cards {
+  margin-top: 14px;
+}
+
+.place-card-list {
+  display: grid;
+}
+
+.place-card-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  width: 100%;
+  padding: 14px 18px;
+  border: 0;
+  border-bottom: 1px solid rgba(42, 74, 45, 0.08);
+  background: transparent;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: background 0.18s ease;
+}
+
+.place-card-row:last-child {
+  border-bottom: 0;
+}
+
+.place-card-row:hover {
+  background: #edf3e5;
+}
+
+.place-card-name {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 16px;
+  font-weight: 700;
+  color: #102116;
+}
+
+.place-card-area {
+  font-size: 12px;
+  font-weight: 800;
+  color: #536057;
+}
+
+.place-card-cta {
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 900;
+  color: #1f5a2e;
+  white-space: nowrap;
 }

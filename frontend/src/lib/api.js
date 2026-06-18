@@ -93,12 +93,12 @@ export async function request(path, options = {}) {
 
 export async function streamChat(
   { question, language = "auto", model = null, isRetry = false, context_session_id = null } = {},
-  { onSources, onToken, onTranslation, onLowConfidence, onGenerating } = {},
+  { onSources, onToken, onTranslation, onLowConfidence, onGenerating, onFinal } = {},
   signal = undefined
 ) {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
-    headers: { "Content-Type": "application/json", Accept: "text/event-stream" },
+    headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...authHeaders() },
     body: JSON.stringify({
       session_id: getSessionId(),
       user_id: getUserId(),
@@ -143,6 +143,7 @@ export async function streamChat(
         case "sources":        onSources?.(evt.sources); break;
         case "token":          onToken?.(evt.token); break;
         case "translation":    onTranslation?.(evt.text); break;
+        case "final":          onFinal?.(evt.text); break;   // link-injected answer
         case "generating":     onGenerating?.(evt); break;
         case "low_confidence": onLowConfidence?.(evt.message); break;
         case "done":           return;
@@ -157,30 +158,29 @@ export async function streamChat(
 // ---------------------------------------------------------------------------
 
 /** → {messages: [{role: "user"|"assistant", content: string, ...}]} */
-export const getHistory = () => request(`/history/${getSessionId()}`);
+export const getHistory = () =>
+  request(`/history/${getSessionId()}`, { headers: authHeaders() });
 
-// ---------------------------------------------------------------------------
-// Sessions — list past chat threads, rename, delete. The active thread is
-// whatever getSessionId() returns; the sidebar switches it via setSessionId.
-// Backend returns { sessions: [{ session_id, display_name }] }, newest first.
-// ---------------------------------------------------------------------------
-
-export const getSessions = (userId) =>
-  userId
-    ? request(`/sessions?user_id=${encodeURIComponent(userId)}`)
-    : request("/sessions");
+export const getSessions = () =>
+  request("/sessions", { headers: authHeaders() });   // user_id dropped; token decides
 
 export const getHistoryFor = (sessionId) =>
-  request(`/history/${sessionId}`);
+  request(`/history/${sessionId}`, { headers: authHeaders() });
 
 export const renameSession = (sessionId, displayName) =>
   request(`/sessions/${sessionId}/rename`, {
     method: "PATCH",
+    headers: authHeaders(),
     body: JSON.stringify({ display_name: displayName }),
   });
 
 export const deleteSession = (sessionId) =>
-  request(`/sessions/${sessionId}`, { method: "DELETE" });
+  request(`/sessions/${sessionId}`, { method: "DELETE", headers: authHeaders() });
+
+export const getSummaries = () => request("/summaries", { headers: authHeaders() });
+
+export const getSummary = (sessionId) =>
+  request(`/summary/${sessionId}`, { headers: authHeaders() });
 
 /** rating: 1 (thumbs up) | -1 (thumbs down). Question = the USER question
  *  that produced the rated answer (backend evicts its cache entries on -1). */
@@ -257,12 +257,6 @@ export const getCityNotes = () => request("/city/notes");
 
 export const getNews = () => request("/city/news");
 
-/** Fetch summaries for all sessions — used by the context-picker modal. */
-export const getSummaries = () => request("/summaries");
-
-/** Fetch a single session's summary. */
-export const getSummary = (sessionId) => request(`/summary/${sessionId}`);
-
 /** Download a session's history as a plain-text file. */
 export async function downloadSession(sessionId, displayName) {
   const { messages } = await getHistoryFor(sessionId);
@@ -285,9 +279,10 @@ export async function downloadSession(sessionId, displayName) {
 // Upcoming events for the Explore page — from the same ingested events table
 // the chat uses. {count, events:[{title, description, category, start_date,
 // end_date, venue, image_url, ticket_url, source_url}]}.
-export const getEvents = (days = 30, category = null) => {
+export const getEvents = (days = 30, category = null, municipality = null) => {
   const qs = new URLSearchParams({ days });
   if (category) qs.set("category", category);
+  if (municipality) qs.set("municipality", municipality);
   return request(`/events?${qs.toString()}`);
 };
 
@@ -330,3 +325,19 @@ export const getAlsoSaved = (slug, limit = 4) =>
     method: "POST",
     body: JSON.stringify({ slug, limit }),
   });
+
+
+export const getStoredLanguage = () => {
+  return localStorage.getItem("tiranatips_language");
+};
+
+export const updateLanguage = (language) =>
+  request("/user/language", {
+    method: "PUT",
+    headers: authHeaders(),
+    body: JSON.stringify({ language }),
+  });
+
+export const setStoredLanguage = (language) => {
+  localStorage.setItem("tiranatips_language", language);
+};

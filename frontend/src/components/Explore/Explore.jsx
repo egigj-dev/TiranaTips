@@ -152,7 +152,7 @@ function Explore() {
     setError("");
     setActiveCat(null);
     try {
-      const { events: list } = await getEvents(30);
+      const { events: list } = await getEvents(30, null, "Tiranë");
       if (myReq !== reqId.current) return;
       setEvents(list || []);
     } catch {
@@ -256,7 +256,7 @@ function Explore() {
             Personalized for you
           </div>
         )}
-        {getSessionToken() && userPrefs?.interests?.length > 0 && !userPrefs?.price_tier && (
+        {getSessionToken() && userPrefs?.interests?.length > 0 && (
           <div className="explore-prefs-badge">
             <span className="prefs-badge-icon">✦</span>
             Ranked by your interests
@@ -293,7 +293,10 @@ function Explore() {
               ))}
             </select>
           )}
+        </div>
 
+        <div className="events-chip-row">
+          <div className="categories-divider" />
           <button
             type="button"
             className={
@@ -329,7 +332,7 @@ function Explore() {
               </select>
             </label>
             <span className="filter-count">
-              {filtered.length} of {results.length}
+              Showing {filtered.length} of {results.length} results
             </span>
           </div>
         )}
@@ -396,7 +399,7 @@ function Explore() {
               </p>
             )}
 
-            <div className="explore-grid">
+            <div className={"explore-grid" + (activeCat ? ` grid-cat-${activeCat}` : "")}>
               {filtered.map((p, i) => {
                 const ref = placeRef(p);
                 const isSaved = ref && savedSlugs.includes(ref);
@@ -410,21 +413,17 @@ function Explore() {
                   >
                     <div className="place-card-head">
                       <h3>{p.name}</h3>
-                      {ref ? (
-                        <button
-                          type="button"
-                          className={"place-save-btn" + (isSaved ? " is-saved" : "")}
-                          onClick={(e) => toggleSave(e, p)}
-                          aria-label={isSaved ? "Unsave place" : "Save place"}
-                        >
-                          <Bookmark
-                            size={16}
-                            fill={isSaved ? "currentColor" : "none"}
-                          />
-                        </button>
-                      ) : (
-                        <ExternalLink size={15} className="place-card-ext" />
-                      )}
+                      <button
+                        type="button"
+                        className={"place-save-btn" + (isSaved ? " is-saved" : "")}
+                        onClick={(e) => toggleSave(e, p)}
+                        aria-label={isSaved ? "Unsave place" : "Save place"}
+                      >
+                        <Bookmark
+                          size={16}
+                          fill={isSaved ? "currentColor" : "none"}
+                        />
+                      </button>
                     </div>
 
                     {p.type && <span className="place-type">{p.type}</span>}
@@ -477,25 +476,23 @@ function Explore() {
               {alsoSaved.map((place) => (
                 <a
                   key={place.slug}
-                  className="recommended-card"
+                  className="also-saved-card"
                   href={`https://www.google.com/maps/search/${encodeURIComponent(place.name)}`}
                   target="_blank"
                   rel="noreferrer"
                 >
-                  <div className="recommended-card-body">
-                    <h3>{place.name}</h3>
-                    {place.category && <span className="place-type">{place.category}</span>}
-                    {place.neighborhood && (
-                      <p className="place-address">
-                        <MapPin size={13} /> {place.neighborhood}
-                      </p>
-                    )}
-                    {place.co_save_count > 0 && (
-                      <p className="also-saved-count">
-                        Saved by {place.co_save_count} other{place.co_save_count !== 1 ? "s" : ""}
-                      </p>
-                    )}
-                  </div>
+                  <h3>{place.name}</h3>
+                  {place.category && <span className="place-type">{place.category}</span>}
+                  {place.neighborhood && (
+                    <p className="place-address">
+                      <MapPin size={13} /> {place.neighborhood}
+                    </p>
+                  )}
+                  {place.co_save_count > 0 && (
+                    <p className="also-saved-count">
+                      Saved by {place.co_save_count} other{place.co_save_count !== 1 ? "s" : ""}
+                    </p>
+                  )}
                 </a>
               ))}
             </div>

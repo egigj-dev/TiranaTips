@@ -19,6 +19,8 @@ import {
   downloadSession,
   getSummaries,
   getUserId,
+  getSessionToken,
+  setStoredLanguage,
 } from "../../lib/api";
 import { getUserProfile, getUserLanguage } from "../../lib/auth";
 
@@ -62,6 +64,10 @@ function Ask() {
   // Ref to buffer English tokens silently when translation is pending, so the
   // user never sees the English answer flash before the translated version.
   const tokenBufferRef = useRef("");
+  // Synchronous guard against rapid double-sends. React state (isStreaming)
+  // updates asynchronously, so two clicks in the same tick both see it false;
+  // a ref flips immediately and blocks the second one.
+  const isStreamingRef = useRef(false);
 
 
   const mostAsked = [
@@ -71,6 +77,29 @@ function Ask() {
     "Where can I exchange money?",
     "What can I do tonight?",
   ];
+
+  // Languages non-logged-in users can pick for their chat answers.
+  // Logged-in users control language from their For You page.
+  const LANGUAGE_OPTIONS = [
+    { code: "auto", label: "Auto (detect)" },
+    { code: "en", label: "English" },
+    { code: "sq", label: "Shqip" },
+    { code: "it", label: "Italiano" },
+    { code: "de", label: "Deutsch" },
+    { code: "fr", label: "Français" },
+    { code: "es", label: "Español" },
+    { code: "tr", label: "Türkçe" },
+    { code: "el", label: "Ελληνικά" },
+    { code: "ru", label: "Русский" },
+    { code: "zh", label: "中文" },
+    { code: "ar", label: "العربية" },
+  ];
+
+  const handleLanguageSelect = (e) => {
+    const lang = e.target.value;
+    setUserLanguage(lang);
+    setStoredLanguage(lang);
+  };
 
   // -------------------------------------------------------------------------
   // Restore the active session's history. Re-runs when the user switches
@@ -199,12 +228,15 @@ function Ask() {
   //      pending so the user never sees English flash before translation)
   //   4. optional `translation` event REPLACES the full text with the
   //      user-language version
-  //   5. `done` ends the stream; `low_confidence` short-circuits with a
+  //   5. `final` event REPLACES the text with the link-injected version, so
+  //      place mentions become highlighted Google Maps links live
+  //   6. `done` ends the stream; `low_confidence` short-circuits with a
   //      fallback message instead of tokens.
   // -------------------------------------------------------------------------
   const sendQuestion = async (textToSend) => {
     const trimmed = textToSend.trim();
-    if (!trimmed || isStreaming) return;
+    if (!trimmed || isStreamingRef.current) return;
+    isStreamingRef.current = true;
 
     const userMessage = {
       id: Date.now(),
@@ -290,6 +322,11 @@ function Ask() {
             ensureBubble();
             patchAssistant(() => ({ text: message, sources: [] }));
           },
+          onFinal: (text) => {
+            // Final answer with Google Maps links injected — replaces the
+            // streamed (raw) text so place names render as highlighted links.
+            patchAssistant(() => ({ text }));
+          },
         }
       );
     } catch (err) {
@@ -302,11 +339,14 @@ function Ask() {
           ? "You’re sending messages a bit too fast — wait a moment and try again."
           : err.status === 422
             ? "That question is too long — please shorten it (max 1000 characters)."
-            : "Sorry — I couldn’t reach the server. Please try again in a moment.";
+            : err.status === 403
+              ? "This conversation belongs to an account — start a new chat to ask anonymously."
+              : "Sorry — I couldn’t reach the server. Please try again in a moment.";
       patchAssistant((m) => ({ text: m.text || friendly }));
     } finally {
       setIsTyping(false);
       setIsStreaming(false);
+      isStreamingRef.current = false;
       // A first message in a new thread creates the session (and its
       // auto-generated name) server-side — refresh so it shows in the sidebar.
       refreshSessions();
@@ -429,6 +469,21 @@ function Ask() {
               </button>
             ))}
           </div>
+
+          <div className="ask-language-picker">
+            <h3>Language</h3>
+            <select
+              value={userLanguage || "auto"}
+              onChange={handleLanguageSelect}
+              aria-label="Chat language"
+            >
+              {LANGUAGE_OPTIONS.map((l) => (
+                <option key={l.code} value={l.code}>
+                  {l.label}
+                </option>
+              ))}
+            </select>
+          </div>
         </aside>
 
         <section className="assistant-chat">
@@ -464,12 +519,24 @@ function Ask() {
                       <ReactMarkdown
                         remarkPlugins={[remarkGfm]}
                         components={{
-                          // Render links in a new tab for safety
-                          a: ({ href, children }) => (
-                            <a href={href} target="_blank" rel="noreferrer">
-                              {children}
-                            </a>
-                          ),
+                          // Render links in a new tab. Place mentions (links to
+                          // Google Maps) get a highlight class so they read as
+                          // tappable chips.
+                          a: ({ href, children }) => {
+                            const isPlace =
+                              typeof href === "string" &&
+                              href.includes("google.com/maps");
+                            return (
+                              <a
+                                href={href}
+                                target="_blank"
+                                rel="noreferrer"
+                                className={isPlace ? "place-link" : undefined}
+                              >
+                                {children}
+                              </a>
+                            );
+                          },
                         }}
                       >
                         {message.text}
@@ -489,25 +556,26 @@ function Ask() {
                       />
                     )}
 
-                  {message.sources?.length > 0 && (
+                  {/* Source pills — web/event/doc links only. Place sources are
+                      NOT shown here: they already appear inline in the answer
+                      as highlighted Maps links, so a pill row would duplicate
+                      them. */}
+                  {message.sources?.some(
+                    (s) => s.type !== "local" && s.type !== "place"
+                  ) && (
                     <div className="message-sources">
-                      {message.sources.filter(
-                        (s) => s.type !== "local"
-                      ).map((source, i) =>
-                        source.url ? (
-                          <a
-                            key={i}
-                            href={source.url}
-                            target="_blank"
-                            rel="noreferrer"
-                          >
-                            {source.type === "event" ? "📅" : source.type === "place" ? "📍" : "🌐"}{" "}
-                            {source.title}
-                          </a>
-                        ) : (
-                          <span key={i}>📄 {source.title || source}</span>
-                        )
-                      )}
+                      {message.sources
+                        .filter((s) => s.type !== "local" && s.type !== "place")
+                        .map((source, i) =>
+                          source.url ? (
+                            <a key={i} href={source.url} target="_blank" rel="noreferrer">
+                              {source.type === "event" ? "📅" : "🌐"}{" "}
+                              {source.title}
+                            </a>
+                          ) : (
+                            <span key={i}>📄 {source.title || source}</span>
+                          )
+                        )}
                     </div>
                   )}
 
@@ -719,7 +787,9 @@ function RecommendationListCard({
 }
 
 function PlaceMapModal({ place, onClose }) {
-  const googleMapsUrl = `https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lng}`;
+  const googleMapsUrl =
+    place.maps_url ||
+    `https://www.google.com/maps/search/?api=1&query=${place.lat},${place.lng}`;
 
   return (
     <div className="place-modal-overlay">
@@ -861,8 +931,16 @@ function PlaceDetailsModal({ place, onClose, onAskFollowUp }) {
 function ContextPickerModal({ currentSessionId, onSelect, onClose }) {
   const [summaries, setSummaries] = useState([]);
   const [loading, setLoading] = useState(true);
+  // /summaries is account-scoped now; without a token it 401s. Distinguish
+  // "logged out" from "logged in but no summaries yet".
+  const [needsLogin, setNeedsLogin] = useState(false);
 
   useEffect(() => {
+    if (!getSessionToken()) {
+      setNeedsLogin(true);
+      setLoading(false);
+      return;
+    }
     getSummaries()
       .then((data) => {
         // Filter out the current session (no point importing your own context)
@@ -871,7 +949,7 @@ function ContextPickerModal({ currentSessionId, onSelect, onClose }) {
         );
         setSummaries(filtered);
       })
-      .catch(console.error)
+      .catch(() => setNeedsLogin(!getSessionToken()))
       .finally(() => setLoading(false));
   }, [currentSessionId]);
 
@@ -899,7 +977,16 @@ function ContextPickerModal({ currentSessionId, onSelect, onClose }) {
           </button>
         </div>
 
-        {loading ? (
+        {needsLogin ? (
+          <div className="context-picker-empty">
+            <p>Log in to use saved context.</p>
+            <p className="context-picker-hint">
+              Past-conversation summaries are tied to your account. Create an
+              account or log in, then chat — a summary is generated
+              automatically after 10 messages.
+            </p>
+          </div>
+        ) : loading ? (
           <div className="context-picker-loading">Loading summaries…</div>
         ) : summaries.length === 0 ? (
           <div className="context-picker-empty">

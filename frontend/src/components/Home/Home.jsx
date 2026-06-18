@@ -7,8 +7,8 @@ import {
   Thermometer,
   MessageCircle,
   Compass,
-  Music,
   Construction,
+  Music,
   Utensils,
   Landmark,
   Map,
@@ -17,7 +17,6 @@ import {
   BriefcaseBusiness,
   GraduationCap,
   LaptopMinimal,
-  CircleDollarSign,
   ChevronLeft,
   ChevronRight,
 } from "lucide-react";
@@ -131,6 +130,13 @@ function Home() {
   const userRate = notes?.exchange?.rates?.[preferredCurrency];
 
   const eur = notes?.exchange?.rates?.EUR;
+
+  // Currency code → symbol map for the exchange rate icon
+  const currencySymbols = {
+    EUR: "\u20AC", USD: "$", GBP: "\u00A3", CHF: "Fr.",
+    TRY: "\u20BA", CAD: "CA$", AUD: "A$",
+  };
+  const currencySymbol = currencySymbols[preferredCurrency] || preferredCurrency;
 
   const weatherUpdatedTime = formatTime(notes?.weather?.fetched_at);
 
@@ -289,7 +295,7 @@ function Home() {
               rel="noreferrer"
               aria-label="Open Iliria 98 exchange rates"
             >
-              <CircleDollarSign size={26} strokeWidth={2.1} />
+              <span className="currency-symbol-icon">{currencySymbol}</span>
 
               <div>
                 <strong>{preferredCurrency} → ALL</strong>
