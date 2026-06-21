@@ -442,16 +442,33 @@
   color: #1f5a2e;
 }
 
-/* Issue 8 + 16 — slim identity strip: profile (avatar + name + mode) on the
-   left, "Member since" on the right. Flex + wrap means it never crams into
-   fixed grid cells at tablet, and there's no negative margin / z-index fight. */
-.profile-summary-strip {
+/* .profile-summary-strip {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
   gap: 12px 26px;
   width: 100%;
+  margin: 0;
+  padding: 16px 22px;
+  border-radius: 18px;
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(42, 74, 45, 0.1);
+  box-shadow: 0 6px 22px rgba(74, 56, 34, 0.06);
+  backdrop-filter: blur(10px);
+} */
+
+.profile-summary-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 26px;
+
+  width: 100%;
+  max-width: 100%;
+  box-sizing: border-box;
+
   margin: 0;
   padding: 16px 22px;
   border-radius: 18px;
