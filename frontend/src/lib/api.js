@@ -332,8 +332,8 @@ export const getStoredLanguage = () => {
 };
 
 export const updateLanguage = (language) =>
-  request("/user/language", {
-    method: "PUT",
+  request("/auth/language", {
+    method: "PATCH",
     headers: authHeaders(),
     body: JSON.stringify({ language }),
   });

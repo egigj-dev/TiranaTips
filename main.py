@@ -31,14 +31,13 @@ from qdrant_client.models import (
 )
 from database import (save_message, get_history, save_summary, get_summary,
                        get_all_sessions, get_all_sessions_with_names, get_all_summaries,
-                       rename_session, get_session_name,
-                       save_feedback, get_feedback_stats,
-                       get_user_preferences, save_user_preferences,
-                       delete_user_preferences, query_events, query_places_by_keyword,
-                       prune_events, DB_PATH,
-                       save_place, unsave_place, get_saved_places, get_saved_slugs,
+                       rename_session, get_session_name, save_feedback, get_feedback_stats,
+                       get_user_preferences, save_user_preferences, delete_user_preferences, 
+                       query_events, query_places_by_keyword, prune_events, DB_PATH, 
+                       save_place, unsave_place, get_saved_places, get_saved_slugs, 
                        get_also_saved, ensure_session_owner, get_sessions_for_user,
-                       get_session_owner, get_summaries_for_user, set_user_language)
+                       get_session_owner, get_summaries_for_user, set_user_language,
+                       is_admin)
 import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
@@ -60,8 +59,13 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
 QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL")
-TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback disabled if unset
+TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")  # Places API (New); demo key works for testing
+
+AUTH_SECRET = os.getenv("AUTH_SECRET", secrets.token_hex(32)).encode()
+if not os.getenv("AUTH_SECRET"):
+    print("[auth] WARNING: AUTH_SECRET unset — using a random per-process secret; "
+          "all tokens invalidate on restart. Set AUTH_SECRET in .env.")
 
 COLLECTION_NAME  = "wiki_banking"
 PLACES_COLLECTION = "places"   # OSM places vector collection (osm_places_index.py)
@@ -238,6 +242,16 @@ def web_search(question: str) -> tuple[str, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
+# Admin Authentication
+# ---------------------------------------------------------------------------
+def _require_admin(request: Request) -> dict:
+    user = _require_user(request)          # 401 if no/!valid token
+    if not is_admin(user["uid"]):
+        raise HTTPException(status_code=403, detail="Admin only")
+    return user
+
+
+# ---------------------------------------------------------------------------
 # Events lookup (local SQLite, populated by ingestion/run.py)
 # ---------------------------------------------------------------------------
 # For time-sensitive event queries we prefer our OWN ingested events over a
@@ -362,8 +376,8 @@ def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
                 loc = r.get("location", {})
                 lat, lon = loc.get("latitude"), loc.get("longitude")
                 maps_url = r.get("googleMapsUri", "")
-                if not maps_url and lat is not None and lon is not None:
-                    maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+                # if not maps_url and lat is not None and lon is not None:
+                #     maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
                 primary_type = r.get("primaryTypeDisplayName", {}).get("text", "")
                 formatted_address = r.get("formattedAddress", "")
                 google_places_list.append({
@@ -406,10 +420,10 @@ def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
     sources: list[dict] = []
     for p in places:
         maps_url = p.get("maps_url", "")
-        if not maps_url:
-            lat, lon = p.get("lat"), p.get("lon")
-            if lat is not None and lon is not None:
-                maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+        # if not maps_url:
+        #     lat, lon = p.get("lat"), p.get("lon")
+        #     if lat is not None and lon is not None:
+        #         maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
         parts = [f"**{p['name']}**"]
         if p.get("category"):
             parts.append(f"({p['category']})")
@@ -1761,10 +1775,10 @@ def delete_session(request: Request, session_id: str):
     return {"deleted": session_id}
 
 @app.post("/admin/ingest")
-async def trigger_ingestion(background_tasks: BackgroundTasks):
+async def trigger_ingestion(request: Request, background_tasks: BackgroundTasks):
+    _require_admin(request)
     background_tasks.add_task(run_ingestion_job)
-    return {"status": "Ingestion filloi ne background — kontrolloni logjet e serverit."}
-
+    return {"status": "Ingestion started in background — check server logs."}
 
 def _refresh_places_job():
     """OSM ingest → enrich (neighborhood/price) → Qdrant reindex, as one task.
@@ -1781,9 +1795,9 @@ def _refresh_places_job():
     except Exception as exc:  # noqa: BLE001
         print(f"[Places] refresh failed: {exc}")
 
-
 @app.post("/admin/places/refresh")
-async def trigger_places_refresh(background_tasks: BackgroundTasks):
+async def trigger_places_refresh(request: Request, background_tasks: BackgroundTasks):
+    _require_admin(request)
     background_tasks.add_task(_refresh_places_job)
     return {"status": "Places refresh started in background — check server logs."}
 
@@ -1807,8 +1821,6 @@ def submit_feedback(request: Request, req: FeedbackRequest):
 @app.get("/feedback/stats")
 def feedback_stats():
     return get_feedback_stats()
-
-
  
 @app.post("/auth/register")
 @limiter.limit("10/minute")
@@ -1823,7 +1835,6 @@ def auth_register(request: Request, req: RegisterRequest):
     return {"authenticated": True, "token": token, "user_id": user["user_id"],
             "display_name": user["display_name"], "language": user["language"]}
  
- 
 @app.post("/auth/login")
 @limiter.limit("20/minute")
 def auth_login(request: Request, req: LoginRequest):
@@ -1833,13 +1844,11 @@ def auth_login(request: Request, req: LoginRequest):
     token = _make_token(user["user_id"], user["username"], user["display_name"])
     return {"authenticated": True, "token": token, "user_id": user["user_id"],
             "display_name": user["display_name"], "language": user["language"]}
- 
- 
+
 @app.post("/auth/logout")
 def auth_logout(request: Request):
     # Stateless tokens — nothing to invalidate server-side; the client drops it.
     return {"authenticated": False}
- 
  
 @app.get("/auth/me")
 def auth_me(request: Request):
@@ -1913,6 +1922,8 @@ def read_preferences(user_id: str = Path(..., pattern=USER_ID_PATTERN)):
     not an error, and the frontend uses the all-null response to decide
     whether to show onboarding.
     """
+    #_assert_user_id_format(user_id)
+    _assert_pref_owner(request, user_id)
     prefs = get_user_preferences(user_id)
     if prefs is None:
         return {
@@ -1938,6 +1949,8 @@ def write_preferences(
     instead of buffering everything and submitting at the end — which is
     what we want, because users routinely abandon partway through.
     """
+    #_assert_user_id_format(user_id)
+    _assert_pref_owner(request, user_id)
     prefs = save_user_preferences(
         user_id,
         mode=req.mode,
@@ -1957,6 +1970,8 @@ def reset_preferences(user_id: str = Path(..., pattern=USER_ID_PATTERN)):
     GDPR-style data deletion. Chat history is intentionally NOT touched
     — that's a separate concern, deleted via the existing session endpoints.
     """
+    #_assert_user_id_format(user_id)
+    _assert_pref_owner(request, user_id)
     deleted = delete_user_preferences(user_id)
     return {"deleted": deleted}
 
@@ -2187,32 +2202,34 @@ def browse_places(request: Request, req: PlaceBrowseRequest):
         must.append(FieldCondition(key="category", match=MatchValue(value=req.category.lower())))
     if req.neighborhood:
         must.append(FieldCondition(key="neighborhood", match=MatchValue(value=req.neighborhood)))
-    if req.max_price is not None:
-        # price_tier <= max_price; NULL tiers are excluded by Range (unknown
-        # price can't be asserted cheap), which is the safe default.
-        must.append(FieldCondition(key="price_tier", range=Range(lte=req.max_price)))
+
+    prefs = get_user_preferences(req.user_id) if req.user_id else None
+    user_interests     = (prefs or {}).get("interests") or []
+    user_neighborhoods = (prefs or {}).get("neighborhoods") or []
+
+    #qfilter = Filter(must=must) if must else None
 
     # Personalization: when user_id is provided, load their interests and add
     # a `should` filter so places matching their tastes rank higher within the
     # filtered set. This is purely a ranking boost — the must filters still
     # constrain the result set.
     should = []
-    if req.user_id:
-        prefs = get_user_preferences(req.user_id)
-        user_interests = (prefs or {}).get("interests") or []
-        for interest in user_interests:
-            should.append(FieldCondition(
-                key="interest_tags",
-                match=MatchValue(value=interest),
-            ))
-        # If user has preferred neighborhoods and no specific neighborhood was
-        # selected in the dropdown, auto-filter to preferred neighborhoods.
-        user_neighborhoods = (prefs or {}).get("neighborhoods") or []
-        if user_neighborhoods and not req.neighborhood:
-            must.append(FieldCondition(
-                key="neighborhood",
-                match=MatchAny(any=user_neighborhoods),
-            ))
+    # if req.user_id:
+    #     prefs = get_user_preferences(req.user_id)
+    #     user_interests = (prefs or {}).get("interests") or []
+    #     for interest in user_interests:
+    #         should.append(FieldCondition(
+    #             key="interest_tags",
+    #             match=MatchValue(value=interest),
+    #         ))
+    #     # If user has preferred neighborhoods and no specific neighborhood was
+    #     # selected in the dropdown, auto-filter to preferred neighborhoods.
+    #     user_neighborhoods = (prefs or {}).get("neighborhoods") or []
+    #     if user_neighborhoods and not req.neighborhood:
+    #         must.append(FieldCondition(
+    #             key="neighborhood",
+    #             match=MatchAny(any=user_neighborhoods),
+    #         ))
 
     qfilter = Filter(must=must, should=should) if (must or should) else None
 
@@ -2249,6 +2266,22 @@ def browse_places(request: Request, req: PlaceBrowseRequest):
         }
         for h in fused
     ]
+
+    # Personalization as ranking (never filtering): float pref-matching places
+    # to the top, preserving RRF order within each tier. Nothing is dropped.
+    if req.user_id:
+        def _pref_rank(p):
+            score = 0
+            if user_interests and set(p.get("interest_tags") or []) & set(user_interests):
+                score += 2
+            if (user_neighborhoods and not req.neighborhood
+                    and p.get("neighborhood") in user_neighborhoods):
+                score += 1
+            if (req.max_price is not None and p.get("price_tier") is not None
+                    and p["price_tier"] <= req.max_price):
+                score += 1
+            return -score
+        places.sort(key=_pref_rank)
 
     # Live enrichment: merge Google's rating/open-now/price so browse cards
     # look as rich as the Google-search path. Per-slug cache keeps this cheap
@@ -2496,6 +2529,13 @@ def _assert_session_owner(user: dict, session_id: str) -> None:
     non-owner can't even confirm a session exists."""
     if get_session_owner(session_id) != user["uid"]:
         raise HTTPException(status_code=404, detail="Session not found")
+
+def _assert_pref_owner(request: Request, user_id: str) -> None:
+    """If a valid token is present, it must own this user_id. Anonymous
+    (no token) onboarding still allowed — there's no account to spoof."""
+    u = _optional_user(request)
+    if u and u["uid"] != user_id:
+        raise HTTPException(status_code=403, detail="Forbidden")
  
  
 class SaveRequest(BaseModel):

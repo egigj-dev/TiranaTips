@@ -10,7 +10,7 @@ import Explore from "./components/Explore/Explore";
 import Global from "./components/Global/Global";
 import Login from "./components/Authentication/Login";
 import Register from "./components/Authentication/Register";
-import { checkSession, logout as apiLogout } from "./lib/api";
+import { getUserProfile, logout as apiLogout } from "./lib/api";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -20,7 +20,10 @@ function App() {
   const [authModal, setAuthModal] = useState(null);
 
   useEffect(() => {
-    checkSession().then((valid) => setIsAuthenticated(valid));
+    getUserProfile().then((profile) => {
+      setIsAuthenticated(!!profile);
+      if (profile) setDisplayName(profile.display_name || "");
+    });
   }, []);
 
   const handleLogin = (name) => {

@@ -525,7 +525,7 @@ function Ask() {
                           a: ({ href, children }) => {
                             const isPlace =
                               typeof href === "string" &&
-                              href.includes("google.com/maps");
+                              /google\.com\/maps|maps\.google\.|goo\.gl\/maps|maps\.app\.goo\.gl/.test(href);
                             return (
                               <a
                                 href={href}

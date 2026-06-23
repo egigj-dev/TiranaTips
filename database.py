@@ -151,6 +151,11 @@ def init_db():
         c.execute("ALTER TABLE users ADD COLUMN language TEXT DEFAULT 'en'")
     except sqlite3.OperationalError:
         pass  # column already exists
+    
+    # idempotent: add is_admin once; ALTER would raise on the 2nd boot
+    cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
+    if "is_admin" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
 
     c.execute('''
             CREATE TABLE IF NOT EXISTS saved_places (
@@ -963,6 +968,16 @@ def get_also_saved(slug: str, limit: int = 4) -> list[dict]:
             continue
         out.append(d)
     return out
+
+#----------------------------------------------------------------------------
+# AUTHENTICATION / ADMIN
+#----------------------------------------------------------------------------
+
+def is_admin(user_id: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    row = conn.execute("SELECT is_admin FROM users WHERE user_id=?", (user_id,)).fetchone()
+    conn.close()
+    return bool(row and row[0])
 
 
 # Auto-inicializim kur importohet moduli
