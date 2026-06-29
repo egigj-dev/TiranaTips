@@ -43,7 +43,7 @@ from database import (save_message, get_history, save_summary, get_summary,
 import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
-from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_text_splitters import RecursiveCharacterTextSplitter, MarkdownHeaderTextSplitter
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from qdrant_client.models import (
     SparseVectorParams, SparseIndexParams, PointStruct,
@@ -940,6 +940,43 @@ def _fetch_wiki_pages() -> list[dict]:
     return documents
 
 
+# Header-aware chunking. We split on markdown headers FIRST so a chunk is a
+# whole section (one attraction, one "## Money & Payments"), never a heading
+# orphaned from its bullets — the failure mode that produced the glued-together
+# glossary chunks. The header path is then (a) prepended to the text so the
+# embedding knows where the chunk sits, and (b) written to the payload as
+# content_type/section metadata (unlocks filtering + eval segmentation later).
+_MD_HEADERS    = [("#", "h1"), ("##", "h2"), ("###", "h3")]
+_md_splitter   = MarkdownHeaderTextSplitter(headers_to_split_on=_MD_HEADERS, strip_headers=True)
+_char_splitter = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
+
+def _split_markdown(doc: dict) -> tuple[list[str], list[dict]]:
+    """Markdown-header split → per-section size cap. Returns (texts, metas) where
+    each meta carries the source title/path PLUS content_type (deepest header)
+    and section (full header path)."""
+    base_meta = doc["metadata"]
+    try:
+        sections = _md_splitter.split_text(doc["text"])
+    except Exception:
+        sections = []
+
+    # Normalize to (content, header_dict); fall back to the whole doc when a
+    # page has no markdown headers at all.
+    pairs = [(s.page_content, s.metadata) for s in sections] or [(doc["text"], {})]
+
+    texts, metas = [], []
+    for content, h in pairs:
+        path_parts   = [h[k] for k in ("h1", "h2", "h3") if h.get(k)]
+        section_path = " > ".join(path_parts)
+        content_type = path_parts[-1] if path_parts else base_meta.get("title", "general")
+        prefix       = f"{section_path}\n" if section_path else ""
+        for piece in _char_splitter.split_text(content):
+            if not piece.strip():
+                continue
+            texts.append(prefix + piece)
+            metas.append({**base_meta, "content_type": content_type, "section": section_path})
+    return texts, metas
+
 def _sync_ingestion():
     import time as _time
     t0 = _time.time()
@@ -951,13 +988,12 @@ def _sync_ingestion():
             return
         print(f"[Ingest] {len(docs)} faqe te gjetur.")
 
-        splitter     = RecursiveCharacterTextSplitter(chunk_size=800, chunk_overlap=100)
         texts, metas = [], []
         for doc in docs:
-            chunks = splitter.split_text(doc["text"])
-            texts.extend(chunks)
-            metas.extend([doc["metadata"]] * len(chunks))
-        print(f"[Ingest] {len(texts)} chunks pas ndarjes.")
+            t, m = _split_markdown(doc)
+            texts.extend(t)
+            metas.extend(m)
+        print(f"[Ingest] {len(texts)} chunks pas ndarjes (markdown-aware).")
 
         dense_vecs  = embeddings.embed_documents(texts)
         sparse_embs = list(sparse_model.embed(texts))
