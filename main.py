@@ -5,6 +5,7 @@ Ekzekuto: uvicorn main:app --reload
 """
 
 import os
+import re
 import sys
 import json
 import asyncio
@@ -31,13 +32,14 @@ from qdrant_client.models import (
 )
 from database import (save_message, get_history, save_summary, get_summary,
                        get_all_sessions, get_all_sessions_with_names, get_all_summaries,
-                       rename_session, get_session_name, save_feedback, get_feedback_stats,
-                       get_user_preferences, save_user_preferences, delete_user_preferences, 
-                       query_events, query_places_by_keyword, prune_events, DB_PATH, 
-                       save_place, unsave_place, get_saved_places, get_saved_slugs, 
+                       rename_session, get_session_name,
+                       save_feedback, get_feedback_stats,
+                       get_user_preferences, save_user_preferences,
+                       delete_user_preferences, query_events,
+                       prune_events, DB_PATH,
+                       save_place, unsave_place, get_saved_places, get_saved_slugs,
                        get_also_saved, ensure_session_owner, get_sessions_for_user,
-                       get_session_owner, get_summaries_for_user, set_user_language,
-                       is_admin)
+                       get_session_owner, get_summaries_for_user, set_user_language)
 import city_notes
 from fastapi.middleware.cors import CORSMiddleware
 import hashlib, time, math, uuid
@@ -59,16 +61,12 @@ OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY")
 CHOSEN_MODEL       = os.getenv("CHOSEN_MODEL")
 QDRANT_URL         = os.getenv("QDRANT_URL", "http://qdrant:6333")
 EMBEDDING_MODEL    = os.getenv("EMBEDDING_MODEL")
-TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback
+TAVILY_API_KEY     = os.getenv("TAVILY_API_KEY")   # optional — web fallback disabled if unset
 GOOGLE_MAPS_API_KEY = os.getenv("GOOGLE_MAPS_API_KEY")  # Places API (New); demo key works for testing
-
-AUTH_SECRET = os.getenv("AUTH_SECRET", secrets.token_hex(32)).encode()
-if not os.getenv("AUTH_SECRET"):
-    print("[auth] WARNING: AUTH_SECRET unset — using a random per-process secret; "
-          "all tokens invalidate on restart. Set AUTH_SECRET in .env.")
 
 COLLECTION_NAME  = "wiki_banking"
 PLACES_COLLECTION = "places"   # OSM places vector collection (osm_places_index.py)
+TRANSIT_COLLECTION = "tirana_transit"
 RERANK_MODEL     = "cross-encoder/mmarco-mMiniLMv2-L12-H384-v1"
 FETCH_K          = 10   # kandidatë nga Qdrant para reranking-ut
 FINAL_K          = 3    # rezultate finale që i dërgohen LLM-it
@@ -109,6 +107,16 @@ ALLOWED_MODELS: set[str] = {
 # ISO 639-1; the LLM uses them as-is in the translation prompt.
 SUPPORTED_LANGUAGES: set[str] = {
     "auto", "en", "sq", "it", "de", "fr", "es", "tr", "el", "ru", "zh", "ar",
+}
+
+# Map ISO 639-1 codes to English names for the reply-language instruction
+# injected into the system prompt (see _build_system_prompt). "auto" is absent
+# on purpose — by prompt-build time, detection has resolved it to a real code
+# (or "en").
+LANG_NAMES: dict[str, str] = {
+    "en": "English", "sq": "Albanian", "it": "Italian", "de": "German",
+    "fr": "French", "es": "Spanish", "tr": "Turkish", "el": "Greek",
+    "ru": "Russian", "zh": "Chinese", "ar": "Arabic",
 }
 
 # ---------------------------------------------------------------------------
@@ -242,16 +250,6 @@ def web_search(question: str) -> tuple[str, list[dict]]:
 
 
 # ---------------------------------------------------------------------------
-# Admin Authentication
-# ---------------------------------------------------------------------------
-def _require_admin(request: Request) -> dict:
-    user = _require_user(request)          # 401 if no/!valid token
-    if not is_admin(user["uid"]):
-        raise HTTPException(status_code=403, detail="Admin only")
-    return user
-
-
-# ---------------------------------------------------------------------------
 # Events lookup (local SQLite, populated by ingestion/run.py)
 # ---------------------------------------------------------------------------
 # For time-sensitive event queries we prefer our OWN ingested events over a
@@ -316,37 +314,12 @@ def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
     and a maps_url field for the frontend pill.
     """
     # ------------------------------------------------------------------ #
-    # 1. OSM keyword search (free, local, no API cost)
+    # 1. Local semantic search (hybrid dense+sparse + cross-encoder rerank)
+    #    over the OSM places collection. Replaces the old SQLite LIKE keyword
+    #    scan so queries match by meaning ("rooftop" → terraces, "kafe" →
+    #    coffee). Free, local, no Google cost.
     # ------------------------------------------------------------------ #
-    # Extract meaningful keywords from the question — skip common stop words
-    # so short queries like "good coffee near Blloku" match "coffee" and "Blloku".
-    stop_words = {
-        "a", "an", "the", "is", "are", "was", "were", "in", "on", "at", "to",
-        "for", "of", "with", "and", "or", "near", "good", "best", "great",
-        "nice", "find", "show", "tell", "me", "about", "some", "any", "what",
-        "where", "which", "how", "do", "does", "i", "you", "we", "they",
-        "recommend", "looking", "like", "want", "need", "can", "could",
-    }
-    words = [w.strip("?,.!;:") for w in question.lower().split()
-             if w.strip("?,.!;:") not in stop_words and len(w.strip("?,.!;:")) > 1]
-
-    # Collect unique places across all keyword searches
-    seen_slugs: set[str] = set()
-    osm_places_list: list[dict] = []
-    for kw in words:
-        results = query_places_by_keyword(kw, limit=limit)
-        for p in results:
-            if p["slug"] not in seen_slugs:
-                seen_slugs.add(p["slug"])
-                osm_places_list.append(p)
-
-    # If the question is very short with no keywords, try the whole question
-    if not osm_places_list and len(question.strip()) > 2:
-        results = query_places_by_keyword(question.strip(), limit=limit)
-        for p in results:
-            if p["slug"] not in seen_slugs:
-                seen_slugs.add(p["slug"])
-                osm_places_list.append(p)
+    osm_places_list: list[dict] = search_places_semantic(question, limit=limit)
 
     # When the question has explicit intent keywords that OSM's keyword
     # search handles poorly (hotels, accommodation, traditional food, etc.),
@@ -420,10 +393,12 @@ def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
     sources: list[dict] = []
     for p in places:
         maps_url = p.get("maps_url", "")
-        # if not maps_url:
-        #     lat, lon = p.get("lat"), p.get("lon")
-        #     if lat is not None and lon is not None:
-        #         maps_url = f"https://www.google.com/maps/search/?api=1&query={lat},{lon}"
+        # OSM rows have no Google URL. Build a NAME-based search link (never
+        # coordinates) so the place resolves to the right venue; this also lets
+        # _inject_maps_links pass 1 link the bare name reliably.
+        if not maps_url and p.get("name"):
+            maps_url = ("https://www.google.com/maps/search/?api=1&query="
+                        + requests.utils.quote(f"{p['name']} Tirana Albania"))
         parts = [f"**{p['name']}**"]
         if p.get("category"):
             parts.append(f"({p['category']})")
@@ -446,12 +421,260 @@ def get_places_context(question: str, limit: int = 8) -> tuple[str, list[dict]]:
     context = "PLACES IN TIRANA (from local directory):\n" + "\n".join(lines)
     return context, sources
 
+_TRANSIT_KEYWORDS = {"bus", "buses", "line", "stop", "stops", "timetable", "route", "transit"}
+_TRANSIT_TIME_WORDS = ("when", "what time", "arrive", "arrival", "depart",
+                       "departure", "leave", "leaves", "next bus", "last bus", "schedule")
+
+def _is_transit_query(q: str) -> bool:
+    ql = q.lower()
+    return any(k in ql for k in _TRANSIT_KEYWORDS)
+
+def _is_transit_time_query(q: str) -> bool:
+    ql = q.lower()
+    return _is_transit_query(q) and any(w in ql for w in _TRANSIT_TIME_WORDS)
+
+def get_bus_context(question: str, limit: int = 3) -> tuple[str, list[dict]]:
+    dense = embeddings.embed_query(question)
+    se = list(sparse_model.query_embed(question))[0]
+    sv = SparseVector(indices=se.indices.tolist(), values=se.values.tolist())
+    try:
+        dr = qdrant.query_points(collection_name=TRANSIT_COLLECTION, query=dense,
+                                 using="dense", limit=FETCH_K, with_payload=True)
+        sr = qdrant.query_points(collection_name=TRANSIT_COLLECTION, query=sv,
+                                 using="sparse", limit=FETCH_K, with_payload=True)
+    except Exception as exc:
+        print(f"[Transit] search failed: {exc}")
+        return "", []
+    cands = _rrf(dr, sr)[:limit]
+    if not cands:
+        return "", []
+    lines = [f"- {h.payload['text']}" for h in cands]
+    srcs = [{"title": h.payload.get("title", "Bus route"),
+             "url": h.payload.get("url", ""), "type": "transit"} for h in cands]
+    return "TIRANA BUS ROUTES (from local transit data):\n" + "\n".join(lines), srcs
+
+ROUTES_API_URL = "https://routes.googleapis.com/directions/v2:computeRoutes"
+
+_DIRECTIONS_TRIGGERS = (
+    "how to get to", "how can i get to", "how do i get to", "how to go to",
+    "how can i go to", "how can i go from", "get from", "go from",
+    "directions to", "directions from", "route to", "route from",
+    "how to reach", "best way to get", "way to get to",
+)
+
+def _is_directions_query(question: str) -> bool:
+    q = question.lower()
+    if any(t in q for t in _DIRECTIONS_TRIGGERS):
+        return True
+    if re.search(r"\bfrom\b.+\bto\b", q):                      # "... from X to Y"
+        return True
+    if re.search(r"\b(walk\w*|driv\w*|bus|cycl\w*)\b.+\bto\b", q):  # "walking ... to Y", "bus to X"
+        return True
+    return False
+
+_DEST_NOISE = re.compile(
+    r"\b(arrive\w*|arrival|depart\w*|leave\w*|by (?:bus|car|foot|train|bike)|please|now|today)\b.*$",
+    re.I)
+
+def _clean_place(s: str) -> str:
+    return _DEST_NOISE.sub("", s).strip(" ,.")
+
+def _extract_origin_dest(question: str) -> tuple[str | None, str]:
+    q = question.strip().rstrip("?.!")
+    m = re.search(r"from\s+(.+?)\s+to\s+(.+)$", q, re.I)      # from X to Y
+    if m:
+        return _clean_place(m.group(1)), _clean_place(m.group(2))
+    m = re.search(r"to\s+(.+?)\s+from\s+(.+)$", q, re.I)      # to Y from X  ← new
+    if m:
+        return _clean_place(m.group(2)), _clean_place(m.group(1))
+    m = re.search(r"\bto\s+(.+)$", q, re.I)                   # ... to Y
+    if m:
+        return None, _clean_place(m.group(1))
+    return None, _clean_place(q)
+_LANDMARK_ALIASES = {
+    "skanderbeg square": "Skanderbeg Square, Tirana, Albania",
+    "skanderbeg sq":     "Skanderbeg Square, Tirana, Albania",
+    "skanderbeg":        "Skanderbeg Square, Tirana, Albania",
+    "skanderbeg sq.":    "Skanderbeg Square, Tirana, Albania",
+    "skanderbeg sqaure": "Skanderbeg Square, Tirana, Albania",  # common typo
+    "skenderbej square":  "Skanderbeg Square, Tirana, Albania",  # Albanian spelling
+    "skenderbej sq":      "Skanderbeg Square, Tirana, Albania",
+    "stadium":            "Air Albania Stadium, Tirana, Albania",
+    "cable car":          "Dajti Ekspres Cable Car, Tirana, Albania",
+    "lake":               "Grand Park / Liqeni Artificial, Tirana, Albania",
+    "grand park":         "Grand Park / Liqeni Artificial, Tirana, Albania",
+    "new market":          "Pazari i Ri, Tirana, Albania",
+    "bazaar":              "Pazari i Ri, Tirana, Albania",
+    "new bazaar":          "Pazari i Ri, Tirana, Albania",
+    "pyramid":             "Pyramid of Tirana, Tirana, Albania",
+    "main mosque":         "Et'hem Bey Mosque, Tirana, Albania",
+    "bunkart":             ["Bunk'Art 1, Tirana, Albania", "Bunk'Art 2, Tirana, Albania"],
+    "airport":              "Tirana International Airport Rinas, Albania",
+    "rinas":                "Tirana International Airport Rinas, Albania",
+    "teg":                  "TEG Shopping Center, Tirana, Albania",
+}
+
+def _geocode_tirana(text: str) -> dict | None:
+    key = text.strip().lower()
+    if key.startswith("the "):
+        key = key[4:]
+    query = _LANDMARK_ALIASES.get(key, text)
+    try:
+        results = _places_text_search(query)
+    except Exception:
+        return None
+    if not results:
+        return None
+    loc = (results[0].get("location") or {})
+    if loc.get("latitude") is None:
+        return None
+    return {"lat": loc["latitude"], "lon": loc["longitude"]}
+
+_WALK_TRIGGERS = ("walk", "walking", "on foot", "by foot", "how far")
+_VEHICLE_WORD = {"BUS": "bus", "TRAM": "tram", "LIGHT_RAIL": "tram",
+                 "SUBWAY": "metro", "HEAVY_RAIL": "train", "RAIL": "train",
+                 "FERRY": "ferry"}
+
+def _wants_walking(q: str) -> bool:
+    ql = q.lower()
+    return any(t in ql for t in _WALK_TRIGGERS)
+
+def _fmt_dur(d) -> str:
+    s = int(str(d or "0").rstrip("s") or 0)
+    m = round(s / 60)
+    return f"{m} min" if m else "under a minute"
+
+_ROUTE_MODES = ("TRANSIT", "DRIVE", "WALK", "BICYCLE")
+_MODE_LABEL  = {"TRANSIT": "By bus", "DRIVE": "Driving", "WALK": "Walking", "BICYCLE": "Cycling"}
+
+def get_transit_context(question: str) -> tuple[str, list[dict]]:
+    if not GOOGLE_MAPS_API_KEY:
+        return "", []
+    origin_text, dest_text = _extract_origin_dest(question)
+    origin_text = origin_text or "Skanderbeg Square Tirana"
+    o, d = _geocode_tirana(origin_text), _geocode_tirana(dest_text)
+    if not o or not d:
+        return "", []
+    if abs(o["lat"] - d["lat"]) < 1e-4 and abs(o["lon"] - d["lon"]) < 1e-4:
+        return "", []   # origin ≈ destination → geocode failed, don't guess
+
+    def _call(mode: str) -> dict | None:
+        body = {
+            "origin":      {"location": {"latLng": {"latitude": o["lat"], "longitude": o["lon"]}}},
+            "destination": {"location": {"latLng": {"latitude": d["lat"], "longitude": d["lon"]}}},
+            "travelMode":  mode,
+        }
+        if mode == "TRANSIT":
+            body["transitPreferences"] = {"allowedTravelModes": ["BUS"]}
+        elif mode == "DRIVE":
+            body["routingPreference"] = "TRAFFIC_AWARE"
+            dep = (_now_tirana() + timedelta(seconds=60)).astimezone(ZoneInfo("UTC"))
+            body["departureTime"] = dep.strftime("%Y-%m-%dT%H:%M:%SZ")
+        headers = {
+            "Content-Type":     "application/json",
+            "X-Goog-Api-Key":   GOOGLE_MAPS_API_KEY,
+            "X-Goog-FieldMask": ("routes.duration,routes.distanceMeters,"
+                                 "routes.legs.steps.transitDetails"),
+        }
+        try:
+            resp = requests.post(ROUTES_API_URL, json=body, headers=headers, timeout=12)
+            resp.raise_for_status()
+            return resp.json()
+        except Exception as e:
+            print(f"[Transit] {mode} failed: {e}")
+            return None
+
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=4) as pool:           # ~1x latency, not 4x
+        res = dict(zip(_ROUTE_MODES, pool.map(_call, _ROUTE_MODES)))
+
+    summary, transit_steps = [], []
+    for mode in _ROUTE_MODES:
+        routes = (res.get(mode) or {}).get("routes") or []
+        if not routes:
+            continue
+        r = routes[0]
+        dist = r.get("distanceMeters") or 0
+        if mode in ("WALK", "BICYCLE") and dist > 8000:   # >8 km — not a real option
+            continue
+        summary.append(f"- {_MODE_LABEL[mode]}: ~{_fmt_dur(r.get('duration'))} "
+                       f"({round(dist)} m)")
+        if mode == "TRANSIT":
+            for step in (r.get("legs") or [{}])[0].get("steps", []):
+                td = step.get("transitDetails")
+                if not td:
+                    continue
+                tl = td.get("transitLine", {})
+                line = tl.get("nameShort") or tl.get("name") or "service"
+                word = _VEHICLE_WORD.get((tl.get("vehicle") or {}).get("type", ""), "")
+                board  = td.get("stopDetails", {}).get("departureStop", {}).get("name", "")
+                alight = td.get("stopDetails", {}).get("arrivalStop", {}).get("name", "")
+                lv = td.get("localizedValues", {})
+                dep = lv.get("departureTime", {}).get("time", {}).get("text", "")
+                arr = lv.get("arrivalTime", {}).get("time", {}).get("text", "")
+                when = f" — departs {dep}, arrives {arr}" if dep and arr else ""
+                transit_steps.append(f"  · Take {word} {line}".rstrip() +
+                                     f" from {board} to {alight}{when}.")
+
+    if not summary:
+        return "", []
+
+    parts = [f"ROUTE OPTIONS ({origin_text} → {dest_text}, from Google Maps):",
+             "\n".join(summary)]
+    if transit_steps:
+        parts.append("Bus route detail:\n" + "\n".join(transit_steps))
+    return "\n".join(parts), []
+
+    # if _wants_walking(question):
+    #     w = (_call("WALK") or {}).get("routes") or []
+    #     if w:
+    #         return (f"WALKING DIRECTIONS ({origin_text} → {dest_text}): about "
+    #                 f"{_fmt_dur(w[0].get('duration'))} on foot "
+    #                 f"({round(w[0].get('distanceMeters') or 0)} m). No bus needed."), []
+
+    # routes = (_call("TRANSIT") or {}).get("routes") or []
+    # if routes:
+    #     steps_out = []
+    #     for step in (routes[0].get("legs") or [{}])[0].get("steps", []):
+    #         td = step.get("transitDetails")
+    #         if not td:
+    #             continue
+    #         tl = td.get("transitLine", {})
+    #         line = tl.get("nameShort") or tl.get("name") or "service"
+    #         word = _VEHICLE_WORD.get((tl.get("vehicle") or {}).get("type", ""), "")
+    #         label = f"{word} {line}".strip()
+    #         board = td.get("stopDetails", {}).get("departureStop", {}).get("name", "")
+    #         alight = td.get("stopDetails", {}).get("arrivalStop", {}).get("name", "")
+    #         lv = td.get("localizedValues", {})
+    #         dep = lv.get("departureTime", {}).get("time", {}).get("text", "")
+    #         arr = lv.get("arrivalTime", {}).get("time", {}).get("text", "")
+    #         hw  = td.get("headway")
+    #         freq = f" (~every {round(int(hw)/60)} min)" if hw else ""
+    #         when = f" — departs {dep}, arrives {arr}" if dep and arr else ""
+    #         steps_out.append(f"- Take {label} from {board} to {alight}{freq}{when}.")
+    #     if steps_out:
+    #         return ("TRANSIT DIRECTIONS (" + origin_text + " → " + dest_text +
+    #                 ", from Google Maps):\n" + "\n".join(steps_out)), []
+
+    # drive = (_call("DRIVE") or {}).get("routes") or []
+    # if drive:
+    #     dist = drive[0].get("distanceMeters") or 0
+    #     if 0 < dist < 1500:
+    #         w = (_call("WALK") or {}).get("routes") or []
+    #         walk = _fmt_dur(w[0].get("duration")) if w else "a few minutes"
+    #         return (f"DIRECTIONS ({origin_text} → {dest_text}): they're only {round(dist)} m "
+    #                 f"apart — about {walk} on foot. Recommend walking, not a taxi."), []
+    #     return (f"DIRECTIONS ({origin_text} → {dest_text}): no public-transit route found. "
+    #             f"Driving is about {_fmt_dur(drive[0].get('duration'))}; suggest a taxi or "
+    #             f"ride-hailing. Bus coverage data is limited."), []
+    # return "", []
 
 # ---------------------------------------------------------------------------
 # Translates the user question to English before retrieval (optimal for the
-# embedding model and BM25), then translates the English answer back to the
-# user's language at the end. Any model in the chain only needs to handle
-# English, making it model-agnostic.
+# embedding model and BM25). The answer is NOT translated back — the main LLM
+# is instructed to reply directly in the user's language (see
+# _build_system_prompt), which removes a full extra LLM pass over the answer
+# and lets non-English replies stream token by token.
 #
 # DeepSeek V3 (~$0.07/1M tokens) is used — cheap, reliable, good Albanian.
 # Kept separate from CHOSEN_MODEL so swapping the RAG model never affects
@@ -568,47 +791,6 @@ async def translate_question_to_english(
         return question, "en"
 
 
-async def translate_answer_to_language(answer: str, language: str) -> str:
-    """
-    Translate the English answer back to the user's language.
-
-    Returns the translated string, or the original answer on any failure.
-    Skips the LLM call entirely if the target is already English.
-    """
-    if not language or language == "en":
-        return answer
-    try:
-        async with httpx.AsyncClient(timeout=30) as client:
-            res = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {OPENROUTER_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": TRANSLATION_MODEL,
-                    "temperature": 0,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": f"You are a translator. Translate user messages to {language}. Output only the translation, nothing else.",
-                        },
-                        {"role": "user", "content": answer},
-                    ],
-                },
-            )
-        data = res.json()
-        if "choices" not in data:
-            print(f"[Translate] ERROR: unexpected OpenRouter response: {json.dumps(data)[:300]}")
-            return answer
-        result = data["choices"][0]["message"]["content"].strip()
-        print(f"[Translate] answer translated to '{language}': {result[:80]}")
-        return result
-    except Exception as e:
-        print(f"[Translate] WARNING: answer translation failed ({e}), using English.")
-        return answer
-
-
 # ---------------------------------------------------------------------------
 # Scheduler
 # ---------------------------------------------------------------------------
@@ -660,6 +842,15 @@ async def lifespan(app: FastAPI):
         id="places_refresh",
         replace_existing=True,
         misfire_grace_time=3600,
+    )
+    scheduler.add_job(
+        _refresh_transit_job, 
+        "cron", 
+        day=1, 
+        hour=3,
+        id="transit_ingest", 
+        replace_existing=True, 
+        misfire_grace_time=3600
     )
     scheduler.start()
     print(f"Scheduler started — ingestion cdo {INGEST_INTERVAL_HOURS}h.")
@@ -1006,6 +1197,7 @@ def contextualize_query(question: str, history: list[dict]) -> str:
         "more", "and", "also", "tell", "what", "why", "how", "when",
         "where", "which", "give", "list", "show", "any", "ok", "okay",
         "yes", "continue", "go", "next", "another",
+        "by", "walking", "driving", "cycling",   # ← mode-only follow-ups
     }
     # Function words that, on their own, don't give a question a retrievable
     # subject. A token outside this set (or a proper noun mid-sentence) means the
@@ -1084,6 +1276,50 @@ def retrieve_context(question: str, k: int = FINAL_K) -> tuple[str, list[dict], 
     confidence     = 1.0 / (1.0 + math.exp(-best_raw_score))
     print(f"[RAG] best_raw={best_raw_score:.3f} confidence={confidence:.3f} threshold={CONFIDENCE_THRESHOLD} min_raw={MIN_RAW_SCORE}")
     return "\n\n".join(context_parts), sources, confidence, best_raw_score
+
+
+def search_places_semantic(query: str, limit: int = 8) -> list[dict]:
+    """Hybrid (dense+sparse) + cross-encoder rerank over the OSM places
+    collection. Drop-in replacement for the SQLite LIKE scan in
+    get_places_context. Returns place dicts in the shape that function expects
+    downstream. Returns [] on a missing/empty collection so the caller still
+    falls through to the Google Places path exactly as before.
+
+    A place has no body text, so the rerank "document" is its
+    name + category + neighborhood — enough signal for the cross-encoder."""
+    dense_vec  = embeddings.embed_query(query)
+    sparse_emb = list(sparse_model.query_embed(query))[0]
+    sparse_vec = SparseVector(indices=sparse_emb.indices.tolist(),
+                              values=sparse_emb.values.tolist())
+    try:
+        dense_results = qdrant.query_points(
+            collection_name=PLACES_COLLECTION, query=dense_vec, using="dense",
+            limit=FETCH_K, with_payload=True)
+        sparse_results = qdrant.query_points(
+            collection_name=PLACES_COLLECTION, query=sparse_vec, using="sparse",
+            limit=FETCH_K, with_payload=True)
+    except Exception as exc:  # noqa: BLE001 — collection missing / Qdrant down
+        print(f"[Places] semantic search failed: {exc}")
+        return []
+
+    candidates = _rrf(dense_results, sparse_results)[:FETCH_K]
+    if not candidates:
+        return []
+
+    pairs  = [[query, " ".join(filter(None, [h.payload.get("name"),
+              h.payload.get("category"), h.payload.get("neighborhood")]))]
+              for h in candidates]
+    scores = _rerank_scores(pairs)
+    ranked = sorted(zip(scores, candidates), key=lambda x: x[0], reverse=True)[:limit]
+    return [{
+        "slug":         h.payload.get("slug"),
+        "name":         h.payload.get("name"),
+        "category":     h.payload.get("category"),
+        "neighborhood": h.payload.get("neighborhood"),
+        "maps_url":     "",   # OSM rows carry no Maps URL; _inject_maps_links adds links
+        "lat":          h.payload.get("lat"),
+        "lon":          h.payload.get("lon"),
+    } for _, h in ranked]
 
 
 # ---------------------------------------------------------------------------
@@ -1199,6 +1435,7 @@ def _build_system_prompt(
     summary: str,
     is_web: bool,
     user_prefs: dict | None = None,
+    reply_language: str = "en",
 ) -> str:
     # Two prompt regions, kept distinct so the model doesn't conflate them:
     #   1. KNOWN FACTS — things stated in the prompt itself (today's date).
@@ -1225,7 +1462,9 @@ def _build_system_prompt(
     profile_block = _build_personalization_block(user_prefs)
     prompt = (
         "You are a friendly and knowledgeable local guide for Tirana, Albania.\n"
-        "Always reply in English — the response will be translated for the user automatically.\n"
+        f"Write the ENTIRE response in {LANG_NAMES.get(reply_language, 'English')}, "
+        f"but keep proper names (places, streets, neighborhoods) in their "
+        f"original form.\n"
         "\n"
         "KNOWN FACTS (use directly, no citation needed):\n"
         f"- Current date and time in Tirana: {_current_time_context()}\n"
@@ -1249,9 +1488,15 @@ def _build_system_prompt(
         "phrasing: \"I don't have more details on that — let me know if you'd like me to "
         "look further.\"\n"
         "- When you mention a place (restaurant, cafe, bar, museum, etc.), refer to it by its "
-        "plain name only. Do NOT write a Markdown link or construct a Google Maps URL yourself — "
-        "the app attaches the correct map link automatically.\n"
-        "- For events, include the Maps link when coordinates are available in the context.\n"
+        "plain name only. NEVER write a Markdown link, a URL, or latitude/longitude coordinates "
+        "yourself, and never invent or guess coordinates — the app attaches the correct map link "
+        "automatically.\n"
+        "- The ONLY map links you may output are ones that already appear, in full, inside the "
+        "CONTEXT (for example an event's listed map link). Reproduce those exactly as written; "
+        "never fabricate, modify, or construct one.\n"
+        "- For directions or route questions, report ONLY the travel modes, durations, "
+        "distances, bus line names, and stops present in the CONTEXT. NEVER invent "
+        "turn-by-turn steps, street names, or navigation instructions.\n"
         f"{source_note}\n"
         f"CONTEXT:\n{context}"
     )
@@ -1404,22 +1649,31 @@ async def chat_stream(request: Request, req: ChatRequest):
     history         = get_history(req.session_id, limit=6)
     retrieval_query = contextualize_query(req.question, history)
 
-    # Translation: question → English (honoring the UI language toggle)
-    english_question, user_language = await translate_question_to_english(
-        retrieval_query, forced_language=req.language
-    )
+    english_question, user_language =  await translate_question_to_english(retrieval_query, forced_language=req.language)
 
-    # Retrieval: RAG or web fallback
     is_web = False
-    if _is_time_sensitive(english_question):
+    if _is_directions_query(english_question) or _is_transit_time_query(english_question):
+        context, sources = await asyncio.to_thread(get_transit_context, english_question)
+        confidence, best_raw = (1.0, 999.0) if context else (0.0, -999.0)
+    elif _is_time_sensitive(english_question):
         context, sources = await asyncio.to_thread(get_events_context, english_question)
-        # Local events found → mark high-confidence so the web fallback is skipped.
-        # Empty → keep the old zeroed scores so it falls through to web search.
         confidence, best_raw = (1.0, 999.0) if context else (0.0, -999.0)
     else:
         context, sources, confidence, best_raw = await asyncio.to_thread(
             retrieve_context, english_question
         )
+
+    # Retrieval: RAG or web fallback
+    # is_web = False
+    # if _is_time_sensitive(english_question):
+    #     context, sources = await asyncio.to_thread(get_events_context, english_question)
+    #     # Local events found → mark high-confidence so the web fallback is skipped.
+    #     # Empty → keep the old zeroed scores so it falls through to web search.
+    #     confidence, best_raw = (1.0, 999.0) if context else (0.0, -999.0)
+    # else:
+    #     context, sources, confidence, best_raw = await asyncio.to_thread(
+    #         retrieve_context, english_question
+    #     )
 
     rag_ok = confidence >= CONFIDENCE_THRESHOLD and best_raw >= MIN_RAW_SCORE
     if not rag_ok:
@@ -1435,10 +1689,19 @@ async def chat_stream(request: Request, req: ChatRequest):
     # Merges into both the context string (for the LLM) and the sources list
     # (for the frontend pills). Always runs regardless of the confidence path,
     # so places always appear when the DB has a keyword match.
-    places_context, places_sources = get_places_context(english_question)
-    if places_context:
-        context = context + "\n\n" + places_context if context else places_context
-        sources = sources + places_sources
+    is_transit = _is_directions_query(english_question) or _is_transit_time_query(english_question)
+    places_sources = []
+    if not is_transit:                       
+        places_context, places_sources = get_places_context(english_question)
+        if places_context:
+            context = context + "\n\n" + places_context if context else places_context
+            sources = sources + places_sources
+    
+    if _is_transit_query(english_question) and not is_transit:
+        bus_context, bus_sources = get_bus_context(english_question)
+        if bus_context:
+            context = context + "\n\n" + bus_context if context else bus_context
+            sources = sources + bus_sources
 
     summary        = get_summary(req.session_id)
     # Inject context from another session if provided
@@ -1447,7 +1710,7 @@ async def chat_stream(request: Request, req: ChatRequest):
         ctx = get_summary(req.context_session_id)
         if ctx:
             context_summary = f"\n\nCONTEXT FROM PAST CONVERSATION ({get_session_name(req.context_session_id)}):\n{ctx}"
-    system_prompt  = _build_system_prompt(context, summary + context_summary, is_web, user_prefs)
+    system_prompt  = _build_system_prompt(context, summary + context_summary, is_web, user_prefs, reply_language=user_language)
     messages_to_send = (
         [{"role": "system", "content": system_prompt}]
         + history
@@ -1460,30 +1723,20 @@ async def chat_stream(request: Request, req: ChatRequest):
             try:
                 yield f"data: {json.dumps({'type': 'sources', 'sources': sources})}\n\n"
 
-                # When the answer needs translation, tell the frontend to show a
-                # placeholder instead of streaming raw English tokens the user
-                # would see before the translation replaces them.
-                needs_translation = bool(user_language and user_language != "en")
-                if needs_translation:
-                    yield f"data: {json.dumps({'type': 'generating'})}\n\n"
-
+                # The model replies directly in the user's language (set in the
+                # system prompt), so tokens stream live with no translation pass.
                 async for token in stream_llm_tokens(messages_to_send, model):
                     full_answer_parts.append(token)
                     yield f"data: {json.dumps({'type': 'token', 'token': token})}\n\n"
 
-                english_answer = "".join(full_answer_parts)
-                if user_language and user_language != "en":
-                    final_answer = await translate_answer_to_language(english_answer, user_language)
-                    yield f"data: {json.dumps({'type': 'translation', 'text': final_answer})}\n\n"
-                else:
-                    final_answer = english_answer
+                final_answer = "".join(full_answer_parts)
 
-                # Post-process: inject Google Maps links for place names
-                # found in our places database. This catches places the LLM
-                # mentioned but didn't format as links.
-                final_answer = _inject_maps_links(final_answer, places_sources)
-                # Push the link-injected answer back so inline Maps links appear
-                # live — the streamed English tokens were raw (unlinked).
+                # Post-process: inject Google Maps links for place names found
+                # in our places database. This catches places the LLM mentioned
+                # but didn't format as links. The streamed tokens were unlinked,
+                # so push the link-injected answer back via the 'final' event.
+                if not is_transit:
+                    final_answer = _inject_maps_links(final_answer, places_sources)
                 yield f"data: {json.dumps({'type': 'final', 'text': final_answer})}\n\n"
 
                 # On retry: user message already in DB → don't duplicate it.
@@ -1534,6 +1787,8 @@ async def chat_stream(request: Request, req: ChatRequest):
 
 @app.post("/chat", response_model=ChatResponse)
 @limiter.limit(RATE_LIMIT)
+@app.post("/chat", response_model=ChatResponse)
+@limiter.limit(RATE_LIMIT)
 def chat(request: Request, req: ChatRequest):
     model = req.model or CHOSEN_MODEL
 
@@ -1565,13 +1820,19 @@ def chat(request: Request, req: ChatRequest):
     history         = get_history(req.session_id, limit=6)
     retrieval_query = contextualize_query(req.question, history)
 
-    # Translation (sync wrapper for async function)
-    english_question, user_language = asyncio.get_event_loop().run_until_complete(
+    # Translation — asyncio.run() is correct here: this sync handler runs in a
+    # worker thread with no event loop, so get_event_loop() would raise.
+    english_question, user_language = asyncio.run(
         translate_question_to_english(retrieval_query, forced_language=req.language)
     )
 
+    # Routing — mirror /chat/stream: directions/time-of-bus → Routes API,
+    # time-sensitive → events, else → RAG.
     is_web = False
-    if _is_time_sensitive(english_question):
+    if _is_directions_query(english_question) or _is_transit_time_query(english_question):
+        context, sources = get_transit_context(english_question)
+        confidence, best_raw = (1.0, 999.0) if context else (0.0, -999.0)
+    elif _is_time_sensitive(english_question):
         context, sources = get_events_context(english_question)
         confidence, best_raw = (1.0, 999.0) if context else (0.0, -999.0)
     else:
@@ -1584,32 +1845,38 @@ def chat(request: Request, req: ChatRequest):
             return ChatResponse(answer=FALLBACK_MSG, sources=[], from_cache=False)
         context, sources, is_web = web_context, web_sources, True
 
-    # Places context — complementary lookup from the OSM places table.
-    places_context, places_sources = get_places_context(english_question)
-    if places_context:
-        context = context + "\n\n" + places_context if context else places_context
-        sources = sources + places_sources
+    # Places context — complementary lookup, suppressed on directions queries
+    # (the transit context already carries the relevant stops).
+    is_transit = _is_directions_query(english_question) or _is_transit_time_query(english_question)
+    places_sources = []
+    if not is_transit:                       # was: not _is_directions_query(...)
+        places_context, places_sources = get_places_context(english_question)
+        if places_context:
+            context = context + "\n\n" + places_context if context else places_context
+            sources = sources + places_sources
+
+    if _is_transit_query(english_question) and not is_transit:
+        bus_context, bus_sources = get_bus_context(english_question)
+        if bus_context:
+            context = context + "\n\n" + bus_context if context else bus_context
+            sources = sources + bus_sources
 
     summary       = get_summary(req.session_id)
-    system_prompt = _build_system_prompt(context, summary, is_web, user_prefs)
+    system_prompt = _build_system_prompt(context, summary, is_web, user_prefs, reply_language=user_language)
     messages      = (
         [{"role": "system", "content": system_prompt}]
         + history
         + [{"role": "user", "content": english_question}]
     )
 
-    english_answer = call_llm(messages, model)
+    # The model replies directly in the user's language (set in the system
+    # prompt), so no answer-translation pass is needed.
+    final_answer = call_llm(messages, model)
 
-    if user_language and user_language != "en":
-        final_answer = asyncio.get_event_loop().run_until_complete(
-            translate_answer_to_language(english_answer, user_language)
-        )
-    else:
-        final_answer = english_answer
-
-    # Post-process: inject Google Maps links for place names
-    # found in our places database.
-    final_answer = _inject_maps_links(final_answer, places_sources)
+    # Post-process: inject Google Maps links for place names found in our DB.
+    final_answer = "".join(full_answer_parts)
+    if not is_transit:
+        final_answer = _inject_maps_links(final_answer, places_sources)
 
     if not req.is_retry:
         save_message(req.session_id, "user", req.question)
@@ -1775,10 +2042,10 @@ def delete_session(request: Request, session_id: str):
     return {"deleted": session_id}
 
 @app.post("/admin/ingest")
-async def trigger_ingestion(request: Request, background_tasks: BackgroundTasks):
-    _require_admin(request)
+async def trigger_ingestion(background_tasks: BackgroundTasks):
     background_tasks.add_task(run_ingestion_job)
-    return {"status": "Ingestion started in background — check server logs."}
+    return {"status": "Ingestion filloi ne background — kontrolloni logjet e serverit."}
+
 
 def _refresh_places_job():
     """OSM ingest → enrich (neighborhood/price) → Qdrant reindex, as one task.
@@ -1795,11 +2062,23 @@ def _refresh_places_job():
     except Exception as exc:  # noqa: BLE001
         print(f"[Places] refresh failed: {exc}")
 
+def _refresh_transit_job():
+    try:
+        import bus_routes          # lazy import keeps startup light, avoids the cycle
+        bus_routes.refresh()
+    except Exception as exc:
+        print(f"[Transit] refresh failed: {exc}")
+
+
 @app.post("/admin/places/refresh")
-async def trigger_places_refresh(request: Request, background_tasks: BackgroundTasks):
-    _require_admin(request)
+async def trigger_places_refresh(background_tasks: BackgroundTasks):
     background_tasks.add_task(_refresh_places_job)
     return {"status": "Places refresh started in background — check server logs."}
+
+@app.post("/admin/transit/refresh")
+async def trigger_transit_refresh(background_tasks: BackgroundTasks):
+    background_tasks.add_task(_refresh_transit_job)
+    return {"status": "Transit refresh started — check server logs."}
 
 @app.post("/feedback", status_code=201)
 @limiter.limit("60/minute")
@@ -1821,6 +2100,8 @@ def submit_feedback(request: Request, req: FeedbackRequest):
 @app.get("/feedback/stats")
 def feedback_stats():
     return get_feedback_stats()
+
+
  
 @app.post("/auth/register")
 @limiter.limit("10/minute")
@@ -1835,6 +2116,7 @@ def auth_register(request: Request, req: RegisterRequest):
     return {"authenticated": True, "token": token, "user_id": user["user_id"],
             "display_name": user["display_name"], "language": user["language"]}
  
+ 
 @app.post("/auth/login")
 @limiter.limit("20/minute")
 def auth_login(request: Request, req: LoginRequest):
@@ -1844,11 +2126,13 @@ def auth_login(request: Request, req: LoginRequest):
     token = _make_token(user["user_id"], user["username"], user["display_name"])
     return {"authenticated": True, "token": token, "user_id": user["user_id"],
             "display_name": user["display_name"], "language": user["language"]}
-
+ 
+ 
 @app.post("/auth/logout")
 def auth_logout(request: Request):
     # Stateless tokens — nothing to invalidate server-side; the client drops it.
     return {"authenticated": False}
+ 
  
 @app.get("/auth/me")
 def auth_me(request: Request):
@@ -1922,8 +2206,6 @@ def read_preferences(user_id: str = Path(..., pattern=USER_ID_PATTERN)):
     not an error, and the frontend uses the all-null response to decide
     whether to show onboarding.
     """
-    #_assert_user_id_format(user_id)
-    _assert_pref_owner(request, user_id)
     prefs = get_user_preferences(user_id)
     if prefs is None:
         return {
@@ -1949,8 +2231,6 @@ def write_preferences(
     instead of buffering everything and submitting at the end — which is
     what we want, because users routinely abandon partway through.
     """
-    #_assert_user_id_format(user_id)
-    _assert_pref_owner(request, user_id)
     prefs = save_user_preferences(
         user_id,
         mode=req.mode,
@@ -1970,8 +2250,6 @@ def reset_preferences(user_id: str = Path(..., pattern=USER_ID_PATTERN)):
     GDPR-style data deletion. Chat history is intentionally NOT touched
     — that's a separate concern, deleted via the existing session endpoints.
     """
-    #_assert_user_id_format(user_id)
-    _assert_pref_owner(request, user_id)
     deleted = delete_user_preferences(user_id)
     return {"deleted": deleted}
 
@@ -2202,34 +2480,32 @@ def browse_places(request: Request, req: PlaceBrowseRequest):
         must.append(FieldCondition(key="category", match=MatchValue(value=req.category.lower())))
     if req.neighborhood:
         must.append(FieldCondition(key="neighborhood", match=MatchValue(value=req.neighborhood)))
-
-    prefs = get_user_preferences(req.user_id) if req.user_id else None
-    user_interests     = (prefs or {}).get("interests") or []
-    user_neighborhoods = (prefs or {}).get("neighborhoods") or []
-
-    #qfilter = Filter(must=must) if must else None
+    if req.max_price is not None:
+        # price_tier <= max_price; NULL tiers are excluded by Range (unknown
+        # price can't be asserted cheap), which is the safe default.
+        must.append(FieldCondition(key="price_tier", range=Range(lte=req.max_price)))
 
     # Personalization: when user_id is provided, load their interests and add
     # a `should` filter so places matching their tastes rank higher within the
     # filtered set. This is purely a ranking boost — the must filters still
     # constrain the result set.
     should = []
-    # if req.user_id:
-    #     prefs = get_user_preferences(req.user_id)
-    #     user_interests = (prefs or {}).get("interests") or []
-    #     for interest in user_interests:
-    #         should.append(FieldCondition(
-    #             key="interest_tags",
-    #             match=MatchValue(value=interest),
-    #         ))
-    #     # If user has preferred neighborhoods and no specific neighborhood was
-    #     # selected in the dropdown, auto-filter to preferred neighborhoods.
-    #     user_neighborhoods = (prefs or {}).get("neighborhoods") or []
-    #     if user_neighborhoods and not req.neighborhood:
-    #         must.append(FieldCondition(
-    #             key="neighborhood",
-    #             match=MatchAny(any=user_neighborhoods),
-    #         ))
+    if req.user_id:
+        prefs = get_user_preferences(req.user_id)
+        user_interests = (prefs or {}).get("interests") or []
+        for interest in user_interests:
+            should.append(FieldCondition(
+                key="interest_tags",
+                match=MatchValue(value=interest),
+            ))
+        # If user has preferred neighborhoods and no specific neighborhood was
+        # selected in the dropdown, auto-filter to preferred neighborhoods.
+        user_neighborhoods = (prefs or {}).get("neighborhoods") or []
+        if user_neighborhoods and not req.neighborhood:
+            must.append(FieldCondition(
+                key="neighborhood",
+                match=MatchAny(any=user_neighborhoods),
+            ))
 
     qfilter = Filter(must=must, should=should) if (must or should) else None
 
@@ -2266,22 +2542,6 @@ def browse_places(request: Request, req: PlaceBrowseRequest):
         }
         for h in fused
     ]
-
-    # Personalization as ranking (never filtering): float pref-matching places
-    # to the top, preserving RRF order within each tier. Nothing is dropped.
-    if req.user_id:
-        def _pref_rank(p):
-            score = 0
-            if user_interests and set(p.get("interest_tags") or []) & set(user_interests):
-                score += 2
-            if (user_neighborhoods and not req.neighborhood
-                    and p.get("neighborhood") in user_neighborhoods):
-                score += 1
-            if (req.max_price is not None and p.get("price_tier") is not None
-                    and p["price_tier"] <= req.max_price):
-                score += 1
-            return -score
-        places.sort(key=_pref_rank)
 
     # Live enrichment: merge Google's rating/open-now/price so browse cards
     # look as rich as the Google-search path. Per-slug cache keeps this cheap
@@ -2529,13 +2789,6 @@ def _assert_session_owner(user: dict, session_id: str) -> None:
     non-owner can't even confirm a session exists."""
     if get_session_owner(session_id) != user["uid"]:
         raise HTTPException(status_code=404, detail="Session not found")
-
-def _assert_pref_owner(request: Request, user_id: str) -> None:
-    """If a valid token is present, it must own this user_id. Anonymous
-    (no token) onboarding still allowed — there's no account to spoof."""
-    u = _optional_user(request)
-    if u and u["uid"] != user_id:
-        raise HTTPException(status_code=403, detail="Forbidden")
  
  
 class SaveRequest(BaseModel):

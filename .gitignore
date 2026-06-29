@@ -53,3 +53,11 @@ model_cache/
 chat.py
 vector_store.py
 wiki_ingest.py
+
+# ── Data ── 
+*.csv
+*.jsonl
+
+# Extra
+build_golden_from_feedback.py
+ingestion/eia.py

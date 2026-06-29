@@ -43,6 +43,11 @@ const NEIGHBORHOODS = [
   "Myslym Shyri", "Pazari i Ri", "Komuna e Parisit", "Liqeni / Grand Park",
 ];
 
+// Backend `max_price` is an int tier 1–4; user prefs store the tier as a
+// string. Map so logged-in browse validates — sending the raw string 422s
+// the whole call, which silently kills personalized (interest) ranking.
+const PRICE_TIER_TO_INT = { budget: 1, mid: 2, premium: 3, luxury: 4 };
+
 function Explore() {
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -197,7 +202,7 @@ function Explore() {
     // Auto-filter by the user's price_tier + interests if logged in
     const isLoggedIn = getSessionToken();
     const maxPrice = isLoggedIn && userPrefs?.price_tier
-      ? userPrefs.price_tier : undefined;
+      ? PRICE_TIER_TO_INT[userPrefs.price_tier] : undefined;
     try {
       const { places } = await browsePlaces({
         query: cat.query,

@@ -86,15 +86,19 @@ export async function request(path, options = {}) {
 //   sources        → {sources: [{title, url?, type?}]}   (always first)
 //   cache          → cached answer is being replayed
 //   token          → {token: "..."}                      (append to answer)
-//   translation    → {text: "..."}                       (REPLACES the answer)
+//   final          → {text: "..."}                       (link-injected answer; REPLACES)
 //   low_confidence → {message: "..."}                    (fallback message)
 //   done           → stream finished
+// The model now replies directly in the user's language, so the old
+// 'translation'/'generating' events are gone — tokens stream live in-language
+// and the 'final' event swaps in the Maps-link-injected version at the end.
 // ---------------------------------------------------------------------------
 
 export async function streamChat(
   { question, language = "auto", model = null, isRetry = false, context_session_id = null } = {},
-  { onSources, onToken, onTranslation, onLowConfidence, onGenerating, onFinal } = {},
-  signal = undefined
+  { onSources, onToken, onLowConfidence, onFinal } = {},
+  signal = undefined,
+  _ownerRetried = false   // internal — guards against an infinite anonymous-session retry loop
 ) {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
@@ -110,6 +114,21 @@ export async function streamChat(
     }),
     signal,
   });
+
+  // Anonymous user landed on a session owned by an account — e.g. they were
+  // logged in earlier in this browser, then logged out, and the owned
+  // session_id still lingers in localStorage. The backend 403s to protect the
+  // account's saved history. Rather than blocking the user, mint a fresh
+  // anonymous session and retry once so anonymous chat just works.
+  if (res.status === 403 && !getSessionToken() && !_ownerRetried) {
+    newSession();
+    return streamChat(
+      { question, language, model, isRetry, context_session_id },
+      { onSources, onToken, onLowConfidence, onFinal },
+      signal,
+      true
+    );
+  }
 
   if (!res.ok || !res.body) {
     const err = new Error(`chat/stream failed: HTTP ${res.status}`);
@@ -142,9 +161,7 @@ export async function streamChat(
       switch (evt.type) {
         case "sources":        onSources?.(evt.sources); break;
         case "token":          onToken?.(evt.token); break;
-        case "translation":    onTranslation?.(evt.text); break;
         case "final":          onFinal?.(evt.text); break;   // link-injected answer
-        case "generating":     onGenerating?.(evt); break;
         case "low_confidence": onLowConfidence?.(evt.message); break;
         case "done":           return;
         // "cache" is informational — tokens follow either way.
