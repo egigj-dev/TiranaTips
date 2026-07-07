@@ -2,7 +2,6 @@
   width: min(1440px, calc(100% - 48px));
   margin: 0 auto;
   padding: 28px 24px 80px;
-  background: #fffaf1;
 }
 
 .explore-header h1 {
@@ -23,10 +22,11 @@
   align-items: center;
   gap: 10px;
   padding: 0 8px 0 16px;
-  border: 1px solid rgba(42, 74, 45, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 16px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.85);
   color: #536057;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
 }
 
 .explore-search input {
@@ -62,19 +62,19 @@
   align-items: center;
   gap: 7px;
   padding: 9px 16px;
-  border: 1px solid rgba(42, 74, 45, 0.18);
+  border: 1px solid rgba(0, 0, 0, 0.06);
   border-radius: 999px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.85);
   color: #102116;
   font: inherit;
   font-size: 13px;
-  font-weight: 800;
+  font-weight: 700;
   cursor: pointer;
   transition: background 0.2s ease, border-color 0.2s ease, transform 0.15s ease;
 }
 
 .category-chip:hover {
-  background: #edf3e5;
+  background: #f0f2eb;
   transform: translateY(-1px);
 }
 
@@ -108,7 +108,7 @@
   font: inherit;
   font-size: 13px;
   font-weight: 800;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.85);
   cursor: pointer;
 }
 
@@ -137,19 +137,18 @@
 .place-card {
   display: block;
   padding: 18px;
-  border: 1px solid rgba(42, 74, 45, 0.12);
-  border-radius: 18px;
-  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.05);
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.78);
   text-decoration: none;
   color: inherit;
-  box-shadow: 0 1px 4px rgba(16, 33, 22, 0.04);
-  transition: transform 0.18s ease, box-shadow 0.2s ease, border-color 0.18s ease;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.03);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
 }
 
 .place-card:hover {
-  transform: translateY(-3px);
-  box-shadow: 0 10px 28px rgba(16, 33, 22, 0.1);
-  border-color: rgba(31, 90, 46, 0.34);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
 }
 
 .place-card-head {
@@ -238,7 +237,7 @@
   padding: 9px 14px;
   border: 1px solid rgba(42, 74, 45, 0.18);
   border-radius: 999px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.85);
   color: #102116;
   font: inherit;
   font-size: 13px;
@@ -426,7 +425,7 @@
   padding: 16px 18px;
   border: 1px solid rgba(42, 74, 45, 0.12);
   border-radius: 16px;
-  background: #fff;
+  background: rgba(255, 255, 255, 0.75);
   text-decoration: none;
   color: inherit;
   transition: transform 0.18s ease, box-shadow 0.2s ease;

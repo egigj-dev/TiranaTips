@@ -96,9 +96,9 @@ export async function request(path, options = {}) {
 
 export async function streamChat(
   { question, language = "auto", model = null, isRetry = false, context_session_id = null } = {},
-  { onSources, onToken, onLowConfidence, onFinal } = {},
+  { onSources, onToken, onLowConfidence, onFinal, onMap } = {},
   signal = undefined,
-  _ownerRetried = false   // internal — guards against an infinite anonymous-session retry loop
+  _ownerRetried = false
 ) {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: "POST",
@@ -124,7 +124,7 @@ export async function streamChat(
     newSession();
     return streamChat(
       { question, language, model, isRetry, context_session_id },
-      { onSources, onToken, onLowConfidence, onFinal },
+      { onSources, onToken, onLowConfidence, onFinal, onMap },
       signal,
       true
     );
@@ -163,6 +163,7 @@ export async function streamChat(
         case "token":          onToken?.(evt.token); break;
         case "final":          onFinal?.(evt.text); break;   // link-injected answer
         case "low_confidence": onLowConfidence?.(evt.message); break;
+        case "map":            onMap?.(evt.map); break; 
         case "done":           return;
         // "cache" is informational — tokens follow either way.
       }

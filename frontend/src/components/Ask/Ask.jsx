@@ -23,6 +23,7 @@ import {
   setStoredLanguage,
 } from "../../lib/api";
 import { getUserProfile, getUserLanguage } from "../../lib/auth";
+import MapPanel from "../../components/MapPanel/MapPanel";
 
 const mapMarkerIcon = new L.Icon({
   iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
@@ -68,6 +69,11 @@ function Ask() {
   // updates asynchronously, so two clicks in the same tick both see it false;
   // a ref flips immediately and blocks the second one.
   const isStreamingRef = useRef(false);
+  // Map data for the currently open map modal.
+  const [activeMapData, setActiveMapData] = useState(null);
+  // Whether the map drawer is visible. Closing the drawer doesn't lose the
+  // last result — the floating toggle can reopen it without re-asking.
+  const [isMapOpen, setIsMapOpen] = useState(false);
 
 
   const mostAsked = [
@@ -276,6 +282,7 @@ function Ask() {
           time: "Just now",
           cardType: null,
           recommendations: null,
+          mapData: null,
         },
       ]);
     };
@@ -295,6 +302,13 @@ function Ask() {
           onSources: (sources) => {
             ensureBubble();
             patchAssistant(() => ({ sources }));
+          },
+          onMap: (mapData) => {
+            console.log("[map]", mapData);   // ← verify line (remove after)
+            ensureBubble();
+            patchAssistant(() => ({ mapData }));
+            setActiveMapData(mapData);
+            setIsMapOpen(true);
           },
           onGenerating: () => {
             ensureBubble();
@@ -386,105 +400,132 @@ function Ask() {
       </section> */}
 
       <section className="assistant-shell">
-        <aside className="assistant-side">
-          <div className="side-logo">
-            <span className="tt-logo-icon" aria-hidden="true"></span>
-            <div>
-              <h2>Ask Tirana</h2>
-              <p>Your AI local assistant</p>
+        {isMapOpen ? (
+          <aside className="assistant-map-panel">
+            <div className="map-panel-header">
+              <span>🗺️ Map</span>
+              <button
+                type="button"
+                className="map-panel-back"
+                onClick={() => setIsMapOpen(false)}
+                aria-label="Close map and return to sidebar"
+              >
+                ← Back
+              </button>
             </div>
-          </div>
-
-          <button
-            type="button"
-            className="new-chat-btn"
-            onClick={startNewChat}
-          >
-            + New chat
-          </button>
-
-          {sessions.length > 0 && (
-            <div className="session-list">
-              <h3>Your chats</h3>
-              {sessions.map((s) => (
-                <div
-                  key={s.session_id}
-                  className={
-                    "session-row" +
-                    (s.session_id === activeSession ? " session-active" : "")
-                  }
-                  onClick={() => openSession(s.session_id)}
-                >
-                  <span className="session-name">{s.display_name}</span>
-                  <div className="session-actions">
-                    <button
-                      type="button"
-                      className="session-download"
-                      aria-label="Download chat"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        downloadSession(s.session_id, s.display_name);
-                      }}
-                      title="Download chat"
-                    >
-                      ⬇
-                    </button>
-                    <button
-                      type="button"
-                      className="session-delete"
-                      aria-label="Delete chat"
-                      onClick={(e) => removeSession(s.session_id, e)}
-                    >
-                      ×
-                    </button>
-                  </div>
-                </div>
-              ))}
+            <MapPanel activeMapData={activeMapData} />
+            {activeMapData?.directions_url && (
+              <a
+                className="map-open-external"
+                href={activeMapData.directions_url}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                Open in Google Maps
+              </a>
+            )}
+          </aside>
+        ) : (
+          <aside className="assistant-side">
+            <div className="side-logo">
+              <span className="tt-logo-icon" aria-hidden="true"></span>
+              <div>
+                <h2>Ask Tirana</h2>
+                <p>Your AI local assistant</p>
+              </div>
             </div>
-          )}
 
-          <div className="sidebar-actions">
             <button
               type="button"
-              className="context-btn"
-              onClick={startNewChatWithContext}
-              title="Start a new chat with context from a past conversation"
+              className="new-chat-btn"
+              onClick={startNewChat}
             >
-              <span>📋</span>
-              New with context
+              + New chat
             </button>
-          </div>
 
-          <div className="most-asked">
-            <h3>Most asked</h3>
+            {sessions.length > 0 && (
+              <div className="session-list">
+                <h3>Your chats</h3>
+                {sessions.map((s) => (
+                  <div
+                    key={s.session_id}
+                    className={
+                      "session-row" +
+                      (s.session_id === activeSession ? " session-active" : "")
+                    }
+                    onClick={() => openSession(s.session_id)}
+                  >
+                    <span className="session-name">{s.display_name}</span>
+                    <div className="session-actions">
+                      <button
+                        type="button"
+                        className="session-download"
+                        aria-label="Download chat"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          downloadSession(s.session_id, s.display_name);
+                        }}
+                        title="Download chat"
+                      >
+                        ⬇
+                      </button>
+                      <button
+                        type="button"
+                        className="session-delete"
+                        aria-label="Delete chat"
+                        onClick={(e) => removeSession(s.session_id, e)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
-            {mostAsked.map((item) => (
+            <div className="sidebar-actions">
               <button
-                key={item}
                 type="button"
-                onClick={() => sendQuestion(item)}
+                className="context-btn"
+                onClick={startNewChatWithContext}
+                title="Start a new chat with context from a past conversation"
               >
-                <span>{item}</span>
-                <b>›</b>
+                <span>📋</span>
+                New with context
               </button>
-            ))}
-          </div>
+            </div>
 
-          <div className="ask-language-picker">
-            <h3>Language</h3>
-            <select
-              value={userLanguage || "auto"}
-              onChange={handleLanguageSelect}
-              aria-label="Chat language"
-            >
-              {LANGUAGE_OPTIONS.map((l) => (
-                <option key={l.code} value={l.code}>
-                  {l.label}
-                </option>
+            <div className="most-asked">
+              <h3>Most asked</h3>
+
+              {mostAsked.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => sendQuestion(item)}
+                >
+                  <span>{item}</span>
+                  <b>›</b>
+                </button>
               ))}
-            </select>
-          </div>
-        </aside>
+            </div>
+
+            <div className="ask-language-picker">
+              <h3>Language</h3>
+              <select
+                value={userLanguage || "auto"}
+                onChange={handleLanguageSelect}
+                aria-label="Chat language"
+              >
+                {LANGUAGE_OPTIONS.map((l) => (
+                  <option key={l.code} value={l.code}>
+                    {l.label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </aside>
+        )}
 
         <section className="assistant-chat">
           <div className="chat-messages">
@@ -639,8 +680,19 @@ function Ask() {
               Send
             </button>
           </form>
+          {activeMapData && !isMapOpen && (
+            <button
+              type="button"
+              className="map-toggle-btn"
+              onClick={() => setIsMapOpen(true)}
+              aria-label="Show map"
+              title="Show map"
+            >
+              🗺️ Map
+            </button>
+          )}
         </section>
-      </section>
+        </section>
 
       {selectedPlace && (
         <PlaceDetailsModal

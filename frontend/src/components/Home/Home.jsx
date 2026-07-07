@@ -315,18 +315,18 @@ function Home() {
         </div>
       </section>
 
-      {/* <section className="right-now-section">
-        <div className="section-heading-row">
-          <div>
-            <h2>Right now in Tirana</h2>
-            <p>
-              <span className="live-dot"></span>
-              Live updates from today
-            </p>
-          </div>
+      <section className="right-now-section">
+        <header className="flow-heading">
+          <span className="flow-kicker">
+            <span className="live-dot"></span>
+            The city, live
+          </span>
+
+          <h2>Right now in Tirana</h2>
+          <p>A quick pulse of what's happening today.</p>
 
           <a href="/explore">See all updates →</a>
-        </div>
+        </header>
 
         <div className="right-now-grid">
           {rightNowUpdates.map((item) => {
@@ -351,19 +351,19 @@ function Home() {
             );
           })}
         </div>
-      </section> */}
+      </section>
 
       <section className="news-section">
-        <div className="section-heading-row">
-          <div>
-            <h2>News in Albania</h2>
-            <p>Headlines from local English-language sources</p>
-          </div>
+        <header className="flow-heading">
+          <span className="flow-kicker">Meanwhile, in the headlines</span>
+
+          <h2>News in Albania</h2>
+          <p>From local English-language sources, refreshed through the day.</p>
 
           <a href="https://www.tiranatimes.com/" target="_blank" rel="noreferrer">
             See all news →
           </a>
-        </div>
+        </header>
 
         <div className="news-carousel-wrap">
           <button
@@ -442,14 +442,14 @@ function Home() {
       </section>
 
       <section className="explore-preview-section">
-        <div className="section-heading-row explore-heading">
-          <div>
-            <h2>Start exploring Tirana</h2>
-            <p>Choose where to start, then go deeper in Explore.</p>
-          </div>
+        <header className="flow-heading">
+          <span className="flow-kicker">When you're ready to wander</span>
+
+          <h2>Start exploring Tirana</h2>
+          <p>Choose where to start, then go deeper in Explore.</p>
 
           <a href="/explore">Open Explore →</a>
-        </div>
+        </header>
 
         <div className="explore-preview-grid">
           {explorePreview.map((item) => {
@@ -473,6 +473,27 @@ function Home() {
                   <span>Explore →</span>
                 </div>
               </a>
+            );
+          })}
+        </div>
+      </section>
+
+      <section className="built-for-strip">
+        <h2>Built for everyone who calls Tirana home — even for a week</h2>
+
+        <div className="built-for-grid">
+          {audienceItems.map((item) => {
+            const Icon = item.icon;
+
+            return (
+              <article key={item.label}>
+                <Icon size={22} strokeWidth={2.2} />
+
+                <div>
+                  <strong>{item.label}</strong>
+                  <small>{item.text}</small>
+                </div>
+              </article>
             );
           })}
         </div>

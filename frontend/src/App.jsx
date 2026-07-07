@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import "./App.css";
-import { Routes, Route, Navigate } from "react-router-dom";
+import "./components/Global/pastel-bg.css";
+import { Routes, Route, Navigate, useLocation } from "react-router-dom";
 import Home from "./components/Home/Home";
 import Navigation from "./components/Navigation/Navigation";
 import Footer from "./components/Footer/Footer";
@@ -18,6 +19,14 @@ function App() {
   // Auth modal: null (closed) | "login" | "register". Browsing is PUBLIC —
   // these only open when the user chooses to sign in, never as a wall.
   const [authModal, setAuthModal] = useState(null);
+  const location = useLocation();
+
+  // Tag <body> with the current page so pastel-bg.css can pick the
+  // page-specific gradient blend (home / explore / ask / global / foryou).
+  useEffect(() => {
+    const page = location.pathname === "/" ? "home" : location.pathname.slice(1).split("/")[0];
+    document.body.dataset.page = page;
+  }, [location.pathname]);
 
   useEffect(() => {
     getUserProfile().then((profile) => {

@@ -22,6 +22,13 @@ RUN npm ci
 # Source, then build. `npm run build` runs in production mode, so it reads
 # .env.production (if present) — NOT .env.development. With nginx proxying the
 # API same-origin, VITE_API_BASE is left unset and api.js falls back to "".
+#
+# VITE_GOOGLE_MAPS_KEY must come in as a build arg: Vite inlines
+# import.meta.env.* at build time, and this stage never sees the compose
+# .env file. Without it, MapPanel's `if (!key) return` guard fires and
+# Rolldown tree-shakes the maps code out of the bundle entirely.
+ARG VITE_GOOGLE_MAPS_KEY
+ENV VITE_GOOGLE_MAPS_KEY=$VITE_GOOGLE_MAPS_KEY
 COPY . .
 RUN npm run build
 

@@ -69,8 +69,11 @@ services:
 
   frontend:
     build:
-      context: ./frontend          
-                                   
+      context: ./frontend
+      args:
+        # Vite inlines this at build time; the build stage never sees the
+        # top-level .env, so it must be forwarded explicitly as a build arg.
+        VITE_GOOGLE_MAPS_KEY: ${VITE_GOOGLE_MAPS_KEY}
     container_name: tirantips-frontend
     restart: unless-stopped
     ports:

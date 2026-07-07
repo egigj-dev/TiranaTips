@@ -1,0 +1,21 @@
+/* Minimal canvas system — warm off-white in the spirit of mate.security.
+   One quiet base for every page: content floats on a clean canvas instead of
+   sitting in colored light. The only tint is the faintest breath of warmth at
+   the top of the viewport so white cards still read as surfaces. */
+
+body,
+body[data-page] {
+  background:
+    radial-gradient(ellipse at 50% 0%, rgba(243, 240, 233, 0.55) 0%, transparent 55%),
+    #faf9f7;
+  background-attachment: fixed;
+}
+
+/* Dark mode keeps the app's dark base so Explore's dark card styles hold. */
+@media (prefers-color-scheme: dark) {
+  body,
+  body[data-page] {
+    background: #16171d;
+    background-attachment: fixed;
+  }
+}

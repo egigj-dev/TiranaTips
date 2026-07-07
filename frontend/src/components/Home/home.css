@@ -1,8 +1,11 @@
 .home-page {
   width: min(1440px, calc(100% - 48px));
   margin: 0 auto;
-  padding: 10px 0 0;
+  padding: 10px 0 64px;
   position: relative;
+  /* The page-wide wash lives on <body> now (pastel-bg.css) — sections float
+     in it instead of carrying their own backgrounds, so nothing reads as a
+     panel. */
 }
 
 /* HERO */
@@ -11,8 +14,6 @@
   position: relative;
   min-height: 680px;
   overflow: hidden;
-  background: #fffaf1;
-  border-bottom: 1px solid rgba(42, 74, 45, 0.1);
   display: flex;
   align-items: center;
 }
@@ -162,8 +163,8 @@
   align-items: center;
   gap: 0;
   background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(42, 74, 45, 0.12);
-  box-shadow: 0 24px 56px rgba(74, 56, 34, 0.1);
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
   backdrop-filter: blur(18px);
   transform: none;
 }
@@ -292,40 +293,67 @@
   font-weight: 850;
 }
 
-/* SHARED */
+/* SHARED — narrative headings
 
-.section-heading-row {
+   Each block opens like a beat in the same story: a hairline thread drops
+   from the block above into a small kicker, then the heading. No rules, no
+   panels — the thread is the only connective tissue. */
+
+.flow-heading {
+  max-width: 620px;
+  margin: 0 auto 32px;
   display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 24px;
-  margin-bottom: 24px;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
 }
 
-.section-heading-row h2 {
-  margin: 0;
+.flow-heading::before {
+  content: "";
+  width: 1px;
+  height: 48px;
+  margin-bottom: 20px;
+  background: linear-gradient(to bottom, transparent, rgba(31, 90, 46, 0.4));
+}
+
+.flow-kicker {
+  display: inline-flex;
+  align-items: center;
+  color: #1f5a2e;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+
+.flow-heading h2 {
+  margin: 12px 0 0;
   color: #102116;
   font-family: Georgia, "Times New Roman", serif;
-  font-size: 32px;
-  line-height: 1;
-  letter-spacing: -0.045em;
-  text-align: left;
+  font-size: clamp(26px, 3vw, 34px);
+  line-height: 1.1;
+  letter-spacing: -0.04em;
 }
 
-.section-heading-row p {
-  margin: 8px 0 0;
+.flow-heading p {
+  margin: 10px 0 0;
   color: #687166;
-  font-size: 14px;
+  font-size: 14.5px;
+  line-height: 1.5;
   font-weight: 650;
 }
 
-.section-heading-row a {
-  margin-top: 6px;
+.flow-heading a {
+  margin-top: 12px;
   color: #1f5a2e;
   text-decoration: none;
-  font-size: 14px;
+  font-size: 13.5px;
   font-weight: 900;
   white-space: nowrap;
+}
+
+.flow-heading a:hover {
+  text-decoration: underline;
 }
 
 .live-dot {
@@ -341,13 +369,7 @@
 /* RIGHT NOW */
 
 .right-now-section {
-  margin-top: 42px;
-  padding: 42px 28px 34px;
-  background:
-    radial-gradient(circle at 8% 0%, rgba(237, 243, 229, 0.66), transparent 28%),
-    radial-gradient(circle at 100% 4%, rgba(241, 220, 184, 0.38), transparent 32%),
-    rgba(255, 250, 241, 0.74);
-  border-bottom: 1px solid rgba(42, 74, 45, 0.08);
+  padding: 8px 28px 0;
 }
 
 .right-now-grid {
@@ -359,26 +381,10 @@
 .right-now-card {
   min-height: 178px;
   padding: 26px;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(42, 74, 45, 0.09);
   display: flex;
   align-items: flex-start;
   gap: 18px;
   text-align: left;
-  box-shadow: 0 16px 38px rgba(74, 56, 34, 0.055);
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease,
-    background 0.2s ease;
-}
-
-.right-now-card:hover {
-  transform: translateY(-3px);
-  border-color: rgba(31, 90, 46, 0.16);
-  background: rgba(255, 255, 255, 0.92);
-  box-shadow: 0 22px 46px rgba(74, 56, 34, 0.085);
 }
 
 .right-now-icon {
@@ -456,18 +462,7 @@
 /* NEWS SECTION */
 
 .news-section {
-  margin-top: 42px;
-  padding: 42px 28px 34px;
-  border-radius: 0;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(237, 243, 229, 0.56), transparent 28%),
-    rgba(255, 250, 241, 0.74);
-  border: 0;
-  border-bottom: 1px solid rgba(42, 74, 45, 0.08);
-}
-
-.news-section .section-heading-row {
-  margin-bottom: 24px;
+  padding: 40px 28px 0;
 }
 
 .news-carousel-wrap {
@@ -479,7 +474,7 @@
   top: 50%;
   z-index: 5;
   width: 35px;
-  height: px;
+  height: 35px;
   border-radius: 999px;
   border: 1px solid rgba(31, 90, 46, 0.16);
   background: rgba(255, 255, 255, 0.92);
@@ -557,32 +552,17 @@
   width: 300px;
   min-width: 280px;
   max-width: 340px;
-  border-radius: 18px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(42, 74, 45, 0.09);
-  box-shadow: 0 12px 30px rgba(74, 56, 34, 0.04);
   overflow: hidden;
   display: flex;
   flex-direction: column;
   text-decoration: none;
   color: inherit;
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
-}
-
-.news-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(31, 90, 46, 0.16);
-  box-shadow: 0 18px 38px rgba(74, 56, 34, 0.08);
 }
 
 .news-card-img {
   width: 100%;
   height: 170px;
   overflow: hidden;
-  background: #e9ede5;
   flex-shrink: 0;
 }
 
@@ -640,17 +620,7 @@
 /* EXPLORE PREVIEW */
 
 .explore-preview-section {
-  margin-top: 42px;
-  padding: 42px 28px 34px;
-  border-radius: 0;
-  background:
-    radial-gradient(circle at 0% 0%, rgba(237, 243, 229, 0.56), transparent 28%),
-    rgba(255, 250, 241, 0.74);
-  border-bottom: 1px solid rgba(42, 74, 45, 0.08);
-}
-
-.explore-heading {
-  margin-bottom: 24px;
+  padding: 40px 28px 0;
 }
 
 .explore-preview-grid {
@@ -662,22 +632,8 @@
 .explore-preview-card {
   position: relative;
   overflow: hidden;
-  border-radius: 24px;
-  background: rgba(255, 255, 255, 0.78);
-  border: 1px solid rgba(42, 74, 45, 0.09);
   text-decoration: none;
   color: inherit;
-  box-shadow: 0 16px 38px rgba(74, 56, 34, 0.055);
-  transition:
-    transform 0.2s ease,
-    box-shadow 0.2s ease,
-    border-color 0.2s ease;
-}
-
-.explore-preview-card:hover {
-  transform: translateY(-4px);
-  border-color: rgba(31, 90, 46, 0.16);
-  box-shadow: 0 24px 48px rgba(74, 56, 34, 0.09);
 }
 
 .explore-preview-card img {
@@ -691,15 +647,16 @@
   position: absolute;
   top: 148px;
   left: 22px;
-  width: 52px;
-  height: 52px;
+  width: 44px;
+  height: 44px;
   border-radius: 50%;
-  background: #edf3e5;
+  background: rgba(255, 255, 255, 0.92);
   color: #1f5a2e;
-  border: 5px solid #fffaf1;
+  border: 3px solid #fffaf1;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
 }
 
 .explore-icon svg {
@@ -735,25 +692,31 @@
   font-weight: 950;
 }
 
-/* BUILT FOR */
+/* BUILT FOR — a quiet closing interlude, not a boxed panel */
 
 .built-for-strip {
-  margin: 42px 28px 42px;
-  padding: 18px 24px;
-  border-radius: 22px;
-  background: rgba(255, 250, 241, 0.82);
-  border: 1px solid rgba(42, 74, 45, 0.1);
-  display: grid;
-  grid-template-columns: 140px 1fr;
-  align-items: center;
-  box-shadow: 0 14px 34px rgba(74, 56, 34, 0.04);
+  max-width: 1020px;
+  margin: 0 auto;
+  padding: 48px 28px 0;
+  text-align: center;
+}
+
+.built-for-strip::before {
+  content: "";
+  display: block;
+  width: 1px;
+  height: 48px;
+  margin: 0 auto 20px;
+  background: linear-gradient(to bottom, transparent, rgba(31, 90, 46, 0.4));
 }
 
 .built-for-strip h2 {
-  margin: 0;
-  color: #102116;
-  font-size: 15px;
-  font-weight: 950;
+  margin: 0 0 26px;
+  color: #1f5a2e;
+  font-size: 12px;
+  font-weight: 900;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
   text-align: center;
 }
 
@@ -769,8 +732,9 @@
   gap: 13px;
   min-height: 54px;
   padding: 0 18px;
-  border-left: 1px solid rgba(42, 74, 45, 0.12);
-  color: #1f5a2e;
+  border-left: 1px solid rgba(0, 0, 0, 0.06);
+  color: #4a6a4e;
+  text-align: left;
 }
 
 .built-for-grid article:first-child {
@@ -855,11 +819,6 @@
   .explore-preview-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
-
-  .built-for-strip {
-    grid-template-columns: 1fr;
-    gap: 14px;
-  }
 }
 
 @media (max-width: 860px) {
@@ -931,18 +890,14 @@
     grid-template-columns: 1fr;
   }
 
-  .section-heading-row {
-    flex-direction: column;
-    gap: 10px;
-  }
-
-  .section-heading-row a {
-    margin-top: 0;
+  .flow-heading::before,
+  .built-for-strip::before {
+    height: 36px;
   }
 
   .news-section,
   .explore-preview-section {
-    margin-top: 34px;
+    padding-top: 32px;
   }
 
   .news-carousel-wrap {
@@ -984,11 +939,13 @@
     padding: 54px 22px 38px;
   }
 
-  .right-now-section,
+  .right-now-section {
+    padding: 6px 20px 0;
+  }
+
   .news-section,
   .explore-preview-section {
-    margin-top: 30px;
-    padding: 30px 20px;
+    padding: 28px 20px 0;
   }
 
   .right-now-card {
@@ -1023,7 +980,7 @@
   }
 
   .built-for-strip {
-    margin: 30px 20px 32px;
+    padding: 36px 20px 0;
   }
 
   .built-for-grid article,
