@@ -1,21 +1,19 @@
-/* Minimal canvas system — warm off-white in the spirit of mate.security.
-   One quiet base for every page: content floats on a clean canvas instead of
-   sitting in colored light. The only tint is the faintest breath of warmth at
-   the top of the viewport so white cards still read as surfaces. */
+/* ── Premium warm canvas ──
+   Warm ivory base with a soft light-wash at the top. The overall feel is
+   calm, premium, welcoming — like a high-end publication or a polished
+   product page. Every section floats on this canvas instead of sitting
+   in boxed panels.
+   ─────────────────────────────────────────── */
 
 body,
 body[data-page] {
   background:
-    radial-gradient(ellipse at 50% 0%, rgba(243, 240, 233, 0.55) 0%, transparent 55%),
-    #faf9f7;
+    radial-gradient(ellipse at 50% 0%, rgba(248, 242, 234, 0.85) 0%, transparent 58%),
+    #F8F4EC;
   background-attachment: fixed;
+  background-size: 100% 120vh;
 }
 
-/* Dark mode keeps the app's dark base so Explore's dark card styles hold. */
-@media (prefers-color-scheme: dark) {
-  body,
-  body[data-page] {
-    background: #16171d;
-    background-attachment: fixed;
-  }
-}
+/* Pages that need an alternating canvas tone get it through their own
+   section backgrounds, not by changing the body. The page wrapper
+   components set section-level bg as needed. */

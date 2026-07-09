@@ -1,16 +1,19 @@
+/* ── Footer — Deep Forest Green, Elegant ──
+   Premium footer in deep green, generous spacing,
+   soft dividers, refined typography.
+   ─────────────────────────────────────── */
+
 .footer {
-  background: #102116;
-  color: #fffaf1;
-  margin-top: 64px;
+  background: #18352A;
+  color: #fff;
+  margin-top: 72px;
 }
 
 .footer-container {
   width: min(1180px, calc(100% - 48px));
   margin: 0 auto;
-  padding: 38px 0 18px;
+  padding: 48px 0 24px;
 }
-
-/* MAIN FOOTER LAYOUT */
 
 .footer-main {
   display: grid;
@@ -18,11 +21,9 @@
   gap: 64px;
   align-items: start;
   justify-content: center;
-  padding-bottom: 28px;
-  border-bottom: 1px solid rgba(255, 250, 241, 0.14);
+  padding-bottom: 32px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
 }
-
-/* BRAND */
 
 .footer-brand {
   max-width: 420px;
@@ -36,7 +37,7 @@
   justify-content: center;
   gap: 10px;
   text-decoration: none;
-  color: #fffaf1;
+  color: #fff;
 }
 
 .footer-logo-icon {
@@ -88,13 +89,12 @@
 
 .footer-description {
   max-width: 360px;
-  margin: 14px auto 0;
-  color: rgba(255, 250, 241, 0.72);
+  margin: 16px auto 0;
+  color: rgba(255, 255, 255, 0.6);
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.65;
+  font-weight: 400;
 }
-
-/* LINKS + NOTE COLUMNS */
 
 .footer-links,
 .footer-note {
@@ -114,46 +114,44 @@
 
 .footer-links h4,
 .footer-note h4 {
-  margin: 0 0 12px;
+  margin: 0 0 16px;
   color: #d9e7c6;
   font-size: 12px;
-  font-weight: 850;
+  font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.12em;
+  opacity: 0.85;
 }
 
 .footer-link-list {
   display: flex;
   flex-direction: column;
-  gap: 9px;
+  gap: 10px;
 }
 
 .footer-link-list a {
   width: fit-content;
-  color: rgba(255, 250, 241, 0.72);
+  color: rgba(255, 255, 255, 0.65);
   text-decoration: none;
   font-size: 14px;
-  font-weight: 650;
-  transition:
-    color 0.2s ease,
-    transform 0.2s ease;
+  font-weight: 400;
+  transition: color 0.2s ease, transform 0.2s ease;
 }
 
 .footer-link-list a:hover {
-  color: #fffaf1;
-  transform: translateX(3px);
+  color: #fff;
+  transform: translateX(4px);
 }
 
 .footer-note > p {
   max-width: 260px;
   margin: 0;
-  color: rgba(255, 250, 241, 0.72);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 14px;
-  line-height: 1.55;
+  line-height: 1.6;
   text-align: left;
+  font-weight: 400;
 }
-
-/* EMERGENCY COLUMN */
 
 .footer-emergency {
   max-width: 260px;
@@ -165,6 +163,13 @@
 .footer-emergency h4 {
   width: 100%;
   text-align: left;
+  margin: 0 0 16px;
+  color: #d9e7c6;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  opacity: 0.85;
 }
 
 .footer-emergency-list {
@@ -172,7 +177,7 @@
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  gap: 8px;
+  gap: 10px;
 }
 
 .footer-emergency-list p {
@@ -183,43 +188,42 @@
   justify-content: start;
   gap: 10px;
   margin: 0;
-  color: rgba(255, 250, 241, 0.72);
+  color: rgba(255, 255, 255, 0.65);
   font-size: 14px;
   line-height: 1.35;
   text-align: left;
+  font-weight: 400;
 }
 
 .footer-emergency-list strong {
   color: #d9e7c6;
   font-size: 14px;
-  font-weight: 900;
-  text-align: left;
-}
-
-.footer-emergency-list span {
-  color: rgba(255, 250, 241, 0.72);
   font-weight: 600;
   text-align: left;
 }
 
-/* BOTTOM */
+.footer-emergency-list span {
+  color: rgba(255, 255, 255, 0.65);
+  font-weight: 400;
+  text-align: left;
+}
 
 .footer-bottom {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 24px;
-  padding-top: 16px;
-  color: rgba(255, 250, 241, 0.52);
+  padding-top: 20px;
+  color: rgba(255, 255, 255, 0.4);
   font-size: 13px;
+  font-weight: 400;
 }
 
 .footer-bottom p {
   margin: 0;
 }
 
-/* RESPONSIVE */
-
+/* Responsive */
 @media (max-width: 960px) {
   .footer {
     margin-top: 56px;
@@ -227,14 +231,14 @@
 
   .footer-container {
     width: min(100% - 32px, 1180px);
-    padding-top: 34px;
+    padding-top: 40px;
   }
 
   .footer-main {
     grid-template-columns: 1fr;
-    gap: 28px;
+    gap: 32px;
     text-align: center;
-    padding-bottom: 26px;
+    padding-bottom: 28px;
   }
 
   .footer-brand,
@@ -295,11 +299,11 @@
   }
 
   .footer-container {
-    padding: 30px 0 18px;
+    padding: 32px 0 18px;
   }
 
   .footer-main {
-    gap: 24px;
+    gap: 28px;
     padding-bottom: 24px;
   }
 
@@ -309,9 +313,9 @@
 
   .footer-description {
     max-width: 310px;
-    margin-top: 14px;
+    margin-top: 16px;
     font-size: 14px;
-    line-height: 1.5;
+    line-height: 1.55;
   }
 
   .footer-link-list {

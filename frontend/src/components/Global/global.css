@@ -1,3 +1,9 @@
+/* ── Global Page — Premium Editorial Timeline ──
+   Apple product history meets National Geographic.
+   Larger hero, soft gradient, elegant timeline with
+   white floating cards and green circular year badges.
+   ─────────────────────────────────────── */
+
 .global-page {
   width: min(1440px, calc(100% - 48px));
   margin: 0 auto;
@@ -5,24 +11,22 @@
   position: relative;
 }
 
-/* ── Hero banner ─────────────────────────────────────────────── */
+/* Hero banner — editorial */
 .global-hero {
   position: relative;
   border-radius: 28px;
-  padding: 72px 40px 68px;
-  margin-bottom: 32px;
+  padding: 80px 40px 72px;
+  margin-bottom: 36px;
   background:
-    radial-gradient(120% 80% at 50% 0%, #dce8da 0%, #edf3e5 45%, #f4f3ed 100%);
-  color: #2a3a2e;
+    radial-gradient(120% 80% at 50% 0%, #DCE8D8 0%, #F7F2EA 45%, #FFFDF8 100%);
+  color: #18352A;
   display: flex;
   align-items: center;
   justify-content: center;
   text-align: center;
-  box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
 }
 
-/* Watercolor skyline anchoring the bottom edge; the alpha mask fades its
-   cream sky into the dark hero so it reads as dusk over the city. */
 .global-hero-skyline {
   position: absolute;
   left: 0;
@@ -46,34 +50,36 @@
 
 .global-hero-pill {
   display: inline-block;
-  margin-bottom: 14px;
-  padding: 6px 14px;
-  border: 1px solid rgba(42, 74, 45, 0.25);
+  margin-bottom: 16px;
+  padding: 6px 16px;
+  border: 1px solid rgba(31, 90, 46, 0.2);
   border-radius: 999px;
-  color: #2a5a3a;
+  color: #1f5a2e;
   font-size: 12px;
-  font-weight: 700;
+  font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
+  opacity: 0.85;
 }
 
 .global-hero h1 {
   margin: 0 0 12px;
   font-family: Georgia, "Times New Roman", serif;
   font-size: clamp(38px, 5vw, 60px);
-  font-weight: 600;
-  letter-spacing: -0.025em;
-  color: #1a2e1e;
+  font-weight: 500;
+  letter-spacing: -0.03em;
+  color: #18352A;
 }
 
 .global-hero p {
   margin: 0;
-  color: rgba(42, 58, 46, 0.7);
+  color: #5F665F;
   font-size: 16px;
-  line-height: 1.6;
+  line-height: 1.7;
+  font-weight: 400;
 }
 
-/* ── International recognition timeline ──────────────────────────── */
+/* Timeline section */
 .recognition-section {
   margin: 0 auto 56px;
   max-width: 1100px;
@@ -90,16 +96,16 @@
 .recognition-timeline::before {
   content: "";
   position: absolute;
-  top: 8px;
-  bottom: 8px;
+  top: 12px;
+  bottom: 12px;
   left: 50%;
   width: 2px;
   transform: translateX(-50%);
   background: linear-gradient(
     to bottom,
     transparent,
-    rgba(42, 74, 45, 0.3) 8%,
-    rgba(42, 74, 45, 0.3) 92%,
+    rgba(31, 90, 46, 0.2) 8%,
+    rgba(31, 90, 46, 0.2) 92%,
     transparent
   );
 }
@@ -107,13 +113,13 @@
 .recognition-item {
   position: relative;
   display: grid;
-  grid-template-columns: 1fr 88px 1fr;
+  grid-template-columns: 1fr 80px 1fr;
   align-items: center;
-  margin: 6px 0;
-  min-height: 116px;
+  margin: 8px 0;
+  min-height: 120px;
 }
 
-/* Hexagon node — the signature element, centered on the spine */
+/* Green circular year badges */
 .recognition-node {
   grid-column: 2;
   display: flex;
@@ -127,59 +133,57 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 72px;
-  height: 80px;
-  background: linear-gradient(150deg, #b8d0b0, #d0e0c8);
-  /* Pointy-top hexagon */
+  width: 68px;
+  height: 76px;
+  background: linear-gradient(150deg, #DCE8D8, #c8dac0);
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
-  transition: transform 0.22s ease, background 0.22s ease;
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.25s ease;
 }
 
-/* Thin ring echo behind the hex for depth */
 .recognition-node::after {
   content: "";
   position: absolute;
-  width: 92px;
-  height: 102px;
+  width: 86px;
+  height: 96px;
   background: transparent;
-  border: 1px solid rgba(42, 74, 45, 0.1);
+  border: 1px solid rgba(31, 90, 46, 0.08);
   clip-path: polygon(50% 0%, 100% 25%, 100% 75%, 50% 100%, 0% 75%, 0% 25%);
   z-index: 1;
 }
 
 .recognition-node:hover .hex {
-  transform: scale(1.08) rotate(-3deg);
-  background: linear-gradient(150deg, #c8ddc0, #dce8d4);
+  transform: scale(1.1) rotate(-3deg);
+  background: linear-gradient(150deg, #cde0c5, #DCE8D4);
 }
 
 .hex-year {
   font-size: 16px;
-  font-weight: 800;
-  color: #1a2e1e;
-  letter-spacing: -0.01em;
+  font-weight: 600;
+  color: #18352A;
+  letter-spacing: -0.02em;
 }
 
-/* Cards — alternate sides */
+/* Timeline cards — white floating */
 .recognition-card {
   grid-column: 1;
   text-align: right;
-  padding: 12px 12px 20px;
-  border-radius: 16px;
-  background: rgba(255, 255, 255, 0.82);
-  border: 1px solid rgba(42, 74, 45, 0.06);
+  padding: 16px 16px 24px;
+  border-radius: 20px;
+  background: rgba(255, 255, 255, 0.88);
+  border: 1px solid rgba(90, 107, 90, 0.04);
   text-decoration: none;
   color: inherit;
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
-  transition: transform 0.2s ease, background 0.2s ease, box-shadow 0.2s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+  transition: transform 0.25s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.25s ease, background 0.2s ease;
 }
 
 .recognition-thumb {
   display: block;
   height: 132px;
-  border-radius: 12px;
+  border-radius: 14px;
   overflow: hidden;
-  background: #e9ede5;
+  background: #F7F2EA;
 }
 
 .recognition-thumb img {
@@ -187,15 +191,15 @@
   height: 100%;
   object-fit: cover;
   display: block;
-  transition: transform 0.3s ease;
+  transition: transform 0.4s ease;
 }
 
 .recognition-card:hover .recognition-thumb img {
-  transform: scale(1.05);
+  transform: scale(1.06);
 }
 
 .recognition-body {
-  padding: 14px 12px 0;
+  padding: 16px 12px 0;
 }
 
 .recognition-item:nth-child(even) .recognition-card {
@@ -204,33 +208,34 @@
 }
 
 .recognition-card:hover {
-  transform: translateY(-2px);
+  transform: translateY(-3px);
   background: rgba(255, 255, 255, 0.95);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.06);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.06);
 }
 
 .recognition-card h3 {
   margin: 0 0 8px;
   font-size: 17px;
-  font-weight: 700;
-  color: #1a2e1e;
+  font-weight: 600;
+  color: #18352A;
   line-height: 1.3;
 }
 
 .recognition-card p {
   margin: 0 0 12px;
   font-size: 13.5px;
-  line-height: 1.55;
-  color: #5a6b5e;
+  line-height: 1.6;
+  color: #5F665F;
+  font-weight: 400;
 }
 
 .recognition-more {
   font-size: 12.5px;
-  font-weight: 700;
-  color: #3a6a4a;
+  font-weight: 600;
+  color: #1f5a2e;
 }
 
-/* ── Mobile: spine moves left, cards stack to its right ────────── */
+/* Mobile */
 @media (max-width: 760px) {
   .global-page {
     width: calc(100% - 32px);
@@ -252,15 +257,18 @@
   .recognition-timeline::before {
     left: 36px;
   }
+
   .recognition-item {
     grid-template-columns: 72px 1fr;
     gap: 14px;
     min-height: 0;
-    margin: 18px 0;
+    margin: 20px 0;
   }
+
   .recognition-node {
     grid-column: 1;
   }
+
   .recognition-card,
   .recognition-item:nth-child(even) .recognition-card {
     grid-column: 2;
