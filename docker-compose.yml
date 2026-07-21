@@ -46,17 +46,20 @@ services:
       # (curl on the VPS). 0.0.0.0 binding exposed uvicorn to internet
       # scanners ("Invalid HTTP request received" log noise) and left
       # /admin/ingest reachable without auth.
-      - "127.0.0.1:8000:8000"
+      - "127.0.0.1:8001:8000"
     volumes:
       # Code is baked into the image; only PERSISTENT DATA is mounted so it
       # survives container recreates on deploy. SQLite (chat_history.db + WAL
       # side-files) lives here. Code is intentionally NOT mounted in prod.
       - ./data:/app/data
-      # Model cache (HuggingFace cross-encoder, fastembed). Without this, the
-      # ~1-2GB of models re-download into the container's writable layer on
-      # every recreate and bloat the disk. Mounting /root/.cache persists them
-      # across deploys — downloaded once, reused forever.
-      - ./model_cache:/root/.cache
+      # Model cache — mount persistent subdirectories so the image-layer
+      # Playwright browsers (installed at build time) are NOT shadowed.
+      # HuggingFace models, fastembed, and reranker are persisted across
+      # recreates; Playwright browsers come from the $(model_cache)/ms-playwright
+      # directory if present, or fall through to the image layer.
+      - ./model_cache/huggingface:/root/.cache/huggingface
+      - ./model_cache/reranker-onnx:/root/.cache/reranker-onnx
+      - ./model_cache/ms-playwright:/root/.cache/ms-playwright
     env_file:
       - .env
     depends_on:
@@ -77,7 +80,8 @@ services:
     container_name: tirantips-frontend
     restart: unless-stopped
     ports:
-      - "80:80"                     # public entry point; nginx serves the SPA
+      - "80:80"                     # HTTP → redirects to HTTPS
+      - "443:443"                   # HTTPS (self-signed cert); nginx serves the SPA
                                     #   and proxies /chat, /preferences, etc.
     depends_on:
       - api

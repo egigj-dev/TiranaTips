@@ -38,8 +38,11 @@ FROM nginx:1.27-alpine
 # Our SPA + API-proxy config replaces nginx's default site.
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Self-signed TLS certs for HTTPS (replace with real certs when a domain is set up).
+COPY certs/ /etc/nginx/certs/
+
 # Only the compiled output crosses the stage boundary.
 COPY --from=build /app/dist /usr/share/nginx/html
 
-EXPOSE 80
+EXPOSE 80 443
 # nginx:alpine's default CMD already runs `nginx -g 'daemon off;'`.

@@ -10,12 +10,9 @@ and saves for those users are also skipped (PRIMARY KEY constraint).
 
 import sqlite3
 import json
-import secrets
-import hashlib
 from datetime import datetime, timedelta
 
-# DB_PATH = "/app/data/chat_history.db"  # container path
-DB_PATH = "/home/ubuntu/tiranatips/data/chat_history.db"  # host path (for testing)
+from database import DB_PATH, create_user
 
 conn = sqlite3.connect(DB_PATH)
 
@@ -176,9 +173,6 @@ skipped_users = 0
 skipped_saves = 0
 
 for idx, (username, display_name, mode, interests, neighborhoods) in enumerate(PERSONAS):
-    # Generate user_id deterministically
-    user_id = f"u_synthetic_{username}"
-
     # Check if user already exists
     existing = conn.execute(
         "SELECT user_id FROM users WHERE username = ?", (username,)
@@ -190,17 +184,21 @@ for idx, (username, display_name, mode, interests, neighborhoods) in enumerate(P
         user_ids.append(existing[0])
         continue
 
-    # Create user
-    salt = secrets.token_hex(8)
-    pw_hash = hashlib.sha256((f"pass_{username}" + salt).encode()).hexdigest()
+    # Create user via the SAME scrypt path as real registration (/auth/register).
+    # create_user() generates a random user_id; we capture it for subsequent saves.
+    try:
+        created = create_user(username, f"pass_{username}", display_name, "en")
+        user_id = created["user_id"]
+    except ValueError:
+        # Username already taken — should not happen since we checked above, but
+        # guard against a race between the SELECT and the INSERT.
+        print(f"  [skip] user '{username}' already exists (race)")
+        skipped_users += 1
+        user_ids.append(existing[0] if existing else None)
+        continue
+
+    # Create preferences (create_user doesn't set preferences, only the user row)
     created_at = (now - timedelta(days=30, hours=rng.randint(0, 720))).isoformat()
-
-    conn.execute(
-        "INSERT INTO users (user_id, username, password_hash, salt, display_name, language, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (user_id, username, pw_hash, salt, display_name, "en", created_at),
-    )
-
-    # Create preferences
     conn.execute(
         "INSERT INTO user_preferences (user_id, mode, interests, neighborhoods, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
         (
@@ -211,7 +209,7 @@ for idx, (username, display_name, mode, interests, neighborhoods) in enumerate(P
     )
 
     user_ids.append(user_id)
-    print(f"  [+] created user {username:20s} ({mode:7s}) interests={interests}")
+    print(f"  [+] created user {username:20s} ({mode:7s}) user_id={user_id} interests={interests}")
 
 # Commit users first
 conn.commit()
@@ -219,7 +217,13 @@ conn.commit()
 # ── 6. Insert saved places for each user ────────────────────────────────────
 
 for idx, (username, display_name, mode, interests, neighborhoods) in enumerate(PERSONAS):
-    user_id = f"u_synthetic_{username}"
+    # Look up the real user_id from the DB (from create_user() above)
+    row = conn.execute(
+        "SELECT user_id FROM users WHERE username = ?", (username,)
+    ).fetchone()
+    if not row:
+        continue  # skip if user wasn't created (shouldn't happen)
+    user_id = row[0]
 
     # Pick places for this user
     selected = pick_places(interests, count_range=(5, 12), seed_offset=idx * 100)
@@ -292,4 +296,4 @@ if popular:
         print(f"  {name:35s} ({cnt} co-saves)")
 
 conn.close()
-print(f"\n✅ Profile seeding complete!")
+print(f"\nProfile seeding complete!")

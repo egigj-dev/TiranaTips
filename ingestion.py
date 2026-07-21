@@ -30,8 +30,7 @@ from qdrant_client.models import (
     PointStruct,
     SparseVector,
 )
-from langchain_huggingface import HuggingFaceEmbeddings
-from fastembed import SparseTextEmbedding
+from fastembed import SparseTextEmbedding, TextEmbedding
 
 load_dotenv()
 
@@ -122,8 +121,8 @@ def chunk_documents(documents: list[dict]) -> tuple[list[str], list[dict]]:
 def embed_and_store(texts: list[str], metas: list[dict]):
     # ── Dense embeddings (semantic) ──
     print("Duke krijuar dense embeddings (semantike)...")
-    dense_model   = HuggingFaceEmbeddings(model_name=EMBEDDING_MODEL)
-    dense_vectors = dense_model.embed_documents(texts)  # list[list[float]]
+    dense_model   = TextEmbedding(model_name=EMBEDDING_MODEL)
+    dense_vectors = list(dense_model.embed(texts))  # list[numpy.ndarray]
 
     # ── Sparse embeddings (BM25 keyword) ──
     # SparseTextEmbedding("Qdrant/bm25") shkarkon modelin BM25 të Qdrant-it herën

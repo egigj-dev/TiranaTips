@@ -50,14 +50,12 @@ def client(tmp_path, monkeypatch):
     db = str(tmp_path / "chat_test.db")
     # Both modules reference their own module-global DB_PATH at call time.
     monkeypatch.setattr(database, "DB_PATH", db)
-    monkeypatch.setattr(main, "DB_PATH", db)
     database.init_db()  # build schema in the temp DB (CREATE TABLE IF NOT EXISTS)
 
     # Don't let slowapi throttle the rapid calls a test makes.
     if hasattr(main, "limiter"):
         monkeypatch.setattr(main.limiter, "enabled", False, raising=False)
 
-    main._cache.clear()
     return TestClient(main.app)
 
 
@@ -257,3 +255,64 @@ def test_language_update_is_gated_and_validated(client):
     assert client.patch("/auth/language", json={"language": "zz"}, headers=auth(token)).status_code == 422
     r = client.patch("/auth/language", json={"language": "it"}, headers=auth(token))
     assert r.status_code == 200 and r.json()["language"] == "it"
+
+
+# --------------------------------------------------------------------------- #
+# Auth tests: register → login → token, seeded-user login, nonexistent 401
+# --------------------------------------------------------------------------- #
+def test_register_then_login_returns_token(client):
+    """a) Register a new user, then log in as that user → 200 + token."""
+    r = client.post("/auth/register", json={
+        "username": "auth_test_reg", "password": "testPass123!", "display_name": "Auth Tester"
+    })
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["authenticated"] is True
+    assert j["token"] and len(j["token"]) > 20
+    assert j["user_id"].startswith("u_")
+    assert j["display_name"] == "Auth Tester"
+
+    # Now log in with the same credentials
+    r = client.post("/auth/login", json={
+        "username": "auth_test_reg", "password": "testPass123!"
+    })
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["authenticated"] is True
+    assert j["token"] and len(j["token"]) > 20
+
+
+def test_seeded_user_can_login(client):
+    """b) Create a user via create_user() (same path as fixed seed_profiles),
+    then verify they can log in. This proves the scrypt path works end-to-end."""
+    from database import create_user
+    create_user("seed_login_test", "seedPass456!", "Seed User", "en")
+
+    r = client.post("/auth/login", json={
+        "username": "seed_login_test", "password": "seedPass456!"
+    })
+    assert r.status_code == 200, r.text
+    j = r.json()
+    assert j["authenticated"] is True
+    assert j["token"] and len(j["token"]) > 20
+    assert j["display_name"] == "Seed User"
+
+
+def test_nonexistent_user_gets_401(client):
+    """c) Nonexistent user → 401."""
+    r = client.post("/auth/login", json={
+        "username": "no_such_user_xyz", "password": "anything"
+    })
+    assert r.status_code == 401, r.text
+    assert "Invalid" in r.json()["detail"]
+
+
+def test_wrong_password_gets_401(client):
+    """Existing user but wrong password → 401."""
+    from database import create_user
+    create_user("wrong_pw_user", "correctPass!", "Wrong PW", "en")
+
+    r = client.post("/auth/login", json={
+        "username": "wrong_pw_user", "password": "wrongPass!"
+    })
+    assert r.status_code == 401, r.text

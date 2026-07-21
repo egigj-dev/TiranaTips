@@ -1,3 +1,68 @@
+# # ── Kredencialet dhe sekrete ──
+# # KRITIKE: Ky skedar përmban çelësa API dhe token-ë të gjallë.
+# # Nëse commit-ohet, çelësat duhet të rindërtohen (rotate) menjëherë.
+# .env
+# _env
+# *.env
+# .env.*
+
+# # ── Qdrant dhe ChromaDB (të dhëna lokale, jo kod) ──
+# qdrant_storage/
+# chroma_db/
+
+# # ── Databaza SQLite ──
+# *.db
+# *.sqlite
+
+# # ── Dump Files ──
+# *.dump
+
+# # ── Python cache ──
+# __pycache__/
+# *.pyc
+# *.pyo
+# .venv/
+# venv/
+# env/
+
+# # ── HuggingFace dhe fastembed model cache ──
+# # Këto shkarkohen automatikisht — nuk duhen në repo
+# .cache/
+# models/
+
+# # ── IDE ──
+# .vscode/
+# .idea/
+
+# # ── OS ──
+# .DS_Store
+# Thumbs.db
+
+# # ── Extra Files ──
+# main_v1.py
+# database_v1.py
+# postgres_data/
+# wiki_data/
+# wikijs-backup.dump
+# validate.py
+# validation_reports
+# deploy.log
+# model_cache/
+
+# # ── Old Files ──
+# chat.py
+# vector_store.py
+# wiki_ingest.py
+
+# # ── Data ── 
+# *.csv
+# *.jsonl
+
+# # Extra
+# build_golden_from_feedback.py
+# ingestion/eia.py
+
+
 # ── Kredencialet dhe sekrete ──
 # KRITIKE: Ky skedar përmban çelësa API dhe token-ë të gjallë.
 # Nëse commit-ohet, çelësat duhet të rindërtohen (rotate) menjëherë.
@@ -5,6 +70,10 @@
 _env
 *.env
 .env.*
+
+# Legacy client-side auth store — unsalted SHA-256 hashes, superseded by the
+# scrypt accounts in database.py. Must never be committed.
+users.json
 
 # ── Qdrant dhe ChromaDB (të dhëna lokale, jo kod) ──
 qdrant_storage/
@@ -61,3 +130,7 @@ wiki_ingest.py
 # Extra
 build_golden_from_feedback.py
 ingestion/eia.py
+create_accounts.py
+test_routes.py
+frontend/certs/
+.pytest_cache/

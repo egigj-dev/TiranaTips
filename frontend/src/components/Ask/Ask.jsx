@@ -386,19 +386,6 @@ function Ask() {
 
   return (
     <main className="ask-page">
-      {/* <section className="ask-intro">
-        <div className="ask-decor ask-decor-left">
-          <span className="tt-logo-icon hero-corner-logo" aria-hidden="true"></span>          <span className="decor-leaf decor-leaf-one"></span>
-          <span className="decor-leaf decor-leaf-two"></span>
-        </div>
-
-        <div className="ask-decor ask-decor-right">
-          <span className="decor-tower"></span>
-          <span className="decor-statue"></span>
-          <span className="decor-building"></span>
-        </div>
-      </section> */}
-
       <section className="assistant-shell">
         {isMapOpen ? (
           <aside className="assistant-map-panel">
@@ -429,10 +416,7 @@ function Ask() {
           <aside className="assistant-side">
             <div className="side-logo">
               <span className="tt-logo-icon" aria-hidden="true"></span>
-              <div>
-                <h2>Ask Tirana</h2>
-                <p>Your AI local assistant</p>
-              </div>
+              <h2>Ask Tirana</h2>
             </div>
 
             <button
@@ -440,12 +424,22 @@ function Ask() {
               className="new-chat-btn"
               onClick={startNewChat}
             >
-              + New chat
+              + New Chat
+            </button>
+
+            <button
+              type="button"
+              className="context-btn"
+              onClick={startNewChatWithContext}
+              title="Start a new chat with context from a past conversation"
+            >
+              <span>📋</span>
+              + Chat with Context
             </button>
 
             {sessions.length > 0 && (
               <div className="session-list">
-                <h3>Your chats</h3>
+                <h3>Chat History</h3>
                 {sessions.map((s) => (
                   <div
                     key={s.session_id}
@@ -483,21 +477,8 @@ function Ask() {
               </div>
             )}
 
-            <div className="sidebar-actions">
-              <button
-                type="button"
-                className="context-btn"
-                onClick={startNewChatWithContext}
-                title="Start a new chat with context from a past conversation"
-              >
-                <span>📋</span>
-                New with context
-              </button>
-            </div>
-
             <div className="most-asked">
-              <h3>Most asked</h3>
-
+              <h3>🔥 Popular</h3>
               {mostAsked.map((item) => (
                 <button
                   key={item}
@@ -528,136 +509,171 @@ function Ask() {
         )}
 
         <section className="assistant-chat">
+          {/* Chat header */}
+          <div className="chat-header">
+            <div className="chat-header-left">
+              <h2>Ask Tirana</h2>
+              <p>Online  ·  AI Local Assistant</p>
+            </div>
+            <div className="chat-header-right">
+              <button type="button" onClick={startNewChat} title="Start new chat">
+                ✏️ New Chat
+              </button>
+              <button type="button" onClick={startNewChatWithContext} title="Chat with context">
+                📋 Context
+              </button>
+            </div>
+          </div>
+
+          {/* Context banner */}
+          {contextSession && (
+            <div className="context-banner">
+              <span>📋 Context loaded: <strong>{contextSession.display_name}</strong></span>
+              <button type="button" onClick={clearContext} title="Remove context">
+                ×
+              </button>
+            </div>
+          )}
+
           <div className="chat-messages">
-            {messages.map((message) => (
-              <div
-                key={message.id}
-                className={
-                  message.type === "user"
-                    ? "message-row message-row-user"
-                    : "message-row"
-                }
-              >
-                {message.type === "assistant" && (
-                  <div className="assistant-avatar">
-                    <span className="tt-logo-icon sm" aria-hidden="true"></span>
-                  </div>
-                )}
-
-                <div
-                  className={
-                    message.type === "user"
-                      ? "message-bubble user-message"
-                      : "message-bubble assistant-message"
-                  }
-                >
-                  {message.type === "assistant" && <strong>TiranaTips</strong>}
-
-                  {message.type === "user" ? (
-                    <p>{message.text}</p>
-                  ) : (
-                    <div className="markdown-content">
-                      <ReactMarkdown
-                        remarkPlugins={[remarkGfm]}
-                        components={{
-                          // Render links in a new tab. Place mentions (links to
-                          // Google Maps) get a highlight class so they read as
-                          // tappable chips.
-                          a: ({ href, children }) => {
-                            const isPlace =
-                              typeof href === "string" &&
-                              /google\.com\/maps|maps\.google\.|goo\.gl\/maps|maps\.app\.goo\.gl/.test(href);
-                            return (
-                              <a
-                                href={href}
-                                target="_blank"
-                                rel="noreferrer"
-                                className={isPlace ? "place-link" : undefined}
-                              >
-                                {children}
-                              </a>
-                            );
-                          },
-                        }}
-                      >
-                        {message.text}
-                      </ReactMarkdown>
-                    </div>
-                  )}
-
-                  {message.cardType === "recommendationList" &&
-                    message.recommendations && (
-                      <RecommendationListCard
-                        data={message.recommendations}
-                        onAskFollowUp={sendQuestion}
-                        onOpenPlace={setSelectedPlace}
-                        onOpenMap={setSelectedMapPlace}
-                        onSavePlace={handleSavePlace}
-                        savedPlaceIds={savedPlaceIds}
-                      />
-                    )}
-
-                  {/* Source pills — web/event/doc links only. Place sources are
-                      NOT shown here: they already appear inline in the answer
-                      as highlighted Maps links, so a pill row would duplicate
-                      them. */}
-                  {message.sources?.some(
-                    (s) => s.type !== "local" && s.type !== "place"
-                  ) && (
-                    <div className="message-sources">
-                      {message.sources
-                        .filter((s) => s.type !== "local" && s.type !== "place")
-                        .map((source, i) =>
-                          source.url ? (
-                            <a key={i} href={source.url} target="_blank" rel="noreferrer">
-                              {source.type === "event" ? "📅" : "🌐"}{" "}
-                              {source.title}
-                            </a>
-                          ) : (
-                            <span key={i}>📄 {source.title || source}</span>
-                          )
-                        )}
-                    </div>
-                  )}
-
-                  {message.type === "assistant" && message.question && (
-                    <div className="message-feedback">
-                      <button
-                        type="button"
-                        className={
-                          feedbackGiven[message.id] === 1 ? "is-rated" : ""
-                        }
-                        disabled={!!feedbackGiven[message.id]}
-                        onClick={() => handleFeedback(message, 1)}
-                        aria-label="Good answer"
-                      >
-                        👍
-                      </button>
-                      <button
-                        type="button"
-                        className={
-                          feedbackGiven[message.id] === -1 ? "is-rated" : ""
-                        }
-                        disabled={!!feedbackGiven[message.id]}
-                        onClick={() => handleFeedback(message, -1)}
-                        aria-label="Bad answer"
-                      >
-                        👎
-                      </button>
-                    </div>
-                  )}
-
-                  <small>{message.time}</small>
+            {/* Empty state: only welcome message exists */}
+            {messages.length === 1 && messages[0].id === "welcome" ? (
+              <div className="empty-state">
+                <span className="tt-logo-icon" aria-hidden="true"></span>
+                <h2>Welcome to TiranaTips</h2>
+                <p>Ask naturally, like talking to a local.</p>
+                <div className="empty-state-examples">
+                  <button type="button" onClick={() => sendQuestion("Where should I eat tonight?")}>
+                    🍝 Where should I eat tonight?
+                  </button>
+                  <button type="button" onClick={() => sendQuestion("Best cafés for working?")}>
+                    ☕ Best cafés for working?
+                  </button>
+                  <button type="button" onClick={() => sendQuestion("How do I get to Dajti?")}>
+                    🏔️ How do I get to Dajti?
+                  </button>
+                  <button type="button" onClick={() => sendQuestion("What's happening this weekend?")}>
+                    🎉 What's happening this weekend?
+                  </button>
+                  <button type="button" onClick={() => sendQuestion("Hidden places tourists miss?")}>
+                    🔍 Hidden places tourists miss?
+                  </button>
                 </div>
               </div>
-            ))}
+            ) : (
+              messages.map((message) => (
+                <div
+                  key={message.id}
+                  className={
+                    message.type === "user"
+                      ? "message-row message-row-user"
+                      : "message-row"
+                  }
+                >
+                  {message.type === "assistant" && (
+                    <div className="assistant-avatar">
+                      <span className="tt-logo-icon sm" aria-hidden="true"></span>
+                    </div>
+                  )}
+
+                  <div
+                    className={
+                      message.type === "user"
+                        ? "message-bubble user-message"
+                        : "message-bubble assistant-message"
+                    }
+                  >
+                    {message.type === "assistant" && <strong>TiranaTips</strong>}
+
+                    {message.type === "user" ? (
+                      <p>{message.text}</p>
+                    ) : (
+                      <div className="markdown-content">
+                        <ReactMarkdown
+                          remarkPlugins={[remarkGfm]}
+                          components={{
+                            a: ({ href, children }) => {
+                              const isPlace =
+                                typeof href === "string" &&
+                                /google\.com\/maps|maps\.google\.|goo\.gl\/maps|maps\.app\.goo\.gl/.test(href);
+                              return (
+                                <a
+                                  href={href}
+                                  target="_blank"
+                                  rel="noreferrer"
+                                  className={isPlace ? "place-link" : undefined}
+                                >
+                                  {children}
+                                </a>
+                              );
+                            },
+                          }}
+                        >
+                          {message.text}
+                        </ReactMarkdown>
+                      </div>
+                    )}
+
+                    {message.cardType === "recommendationList" &&
+                      message.recommendations && (
+                        <RecommendationListCard
+                          data={message.recommendations}
+                          onAskFollowUp={sendQuestion}
+                          onOpenPlace={setSelectedPlace}
+                          onOpenMap={setSelectedMapPlace}
+                          onSavePlace={handleSavePlace}
+                          savedPlaceIds={savedPlaceIds}
+                        />
+                      )}
+
+                    {message.sources?.some(
+                      (s) => s.type !== "local" && s.type !== "place"
+                    ) && (
+                      <div className="message-sources">
+                        {message.sources
+                          .filter((s) => s.type !== "local" && s.type !== "place")
+                          .map((source, i) =>
+                            source.url ? (
+                              <a key={i} href={source.url} target="_blank" rel="noreferrer">
+                                {source.type === "event" ? "📅" : "🌐"} {source.title}
+                              </a>
+                            ) : (
+                              <span key={i}>📄 {source.title || source}</span>
+                            )
+                          )}
+                      </div>
+                    )}
+
+                    {message.type === "assistant" && message.question && (
+                      <div className="message-feedback">
+                        <button
+                          type="button"
+                          className={feedbackGiven[message.id] === 1 ? "is-rated" : ""}
+                          disabled={!!feedbackGiven[message.id]}
+                          onClick={() => handleFeedback(message, 1)}
+                          aria-label="Good answer"
+                        >👍</button>
+                        <button
+                          type="button"
+                          className={feedbackGiven[message.id] === -1 ? "is-rated" : ""}
+                          disabled={!!feedbackGiven[message.id]}
+                          onClick={() => handleFeedback(message, -1)}
+                          aria-label="Bad answer"
+                        >👎</button>
+                      </div>
+                    )}
+
+                    <small>{message.time}</small>
+                  </div>
+                </div>
+              ))
+            )}
 
             {isTyping && (
               <div className="message-row">
                 <div className="assistant-avatar">
                   <span className="tt-logo-icon sm" aria-hidden="true"></span>
                 </div>
-
                 <div className="typing-bubble">
                   <span></span>
                   <span></span>
@@ -667,17 +683,16 @@ function Ask() {
             )}
           </div>
 
-          <form className="chat-form" onSubmit={handleSubmit}>
+          <form className="chat-form" onSubmit={handleSubmit} style={{ maxWidth: "800px", margin: "0 auto", width: "100%" }}>
             <input
               value={question}
               onChange={(event) => setQuestion(event.target.value)}
-              placeholder="Ask me anything about Tirana..."
+              placeholder="Ask about restaurants, events, places..."
               maxLength={1000}
               disabled={isStreaming}
             />
-
-            <button type="submit" disabled={isStreaming}>
-              Send
+            <button type="submit" disabled={isStreaming} aria-label="Send message">
+              ➜
             </button>
           </form>
           {activeMapData && !isMapOpen && (
@@ -710,15 +725,6 @@ function Ask() {
       )}
 
       {toastMessage && <div className="save-toast">{toastMessage}</div>}
-
-      {contextSession && (
-        <div className="context-banner">
-          <span>📋 Context loaded: <strong>{contextSession.display_name}</strong></span>
-          <button type="button" onClick={clearContext} title="Remove context">
-            ×
-          </button>
-        </div>
-      )}
 
       {showContextPicker && (
         <ContextPickerModal

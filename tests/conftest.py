@@ -66,7 +66,7 @@ _stub_module("qdrant_client.models", exports=[
     "Filter", "FieldCondition", "MatchValue", "MatchAny", "Range",
 ])
 _stub_module("langchain_huggingface", exports=["HuggingFaceEmbeddings"])
-_stub_module("langchain_text_splitters", exports=["RecursiveCharacterTextSplitter"])
+_stub_module("langchain_text_splitters", exports=["RecursiveCharacterTextSplitter", "MarkdownHeaderTextSplitter"])
 _stub_module("fastembed", exports=["SparseTextEmbedding"])
 
 # city_notes.py imports these
