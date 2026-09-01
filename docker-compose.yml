@@ -83,5 +83,7 @@ services:
       - "80:80"                     # HTTP → redirects to HTTPS
       - "443:443"                   # HTTPS (self-signed cert); nginx serves the SPA
                                     #   and proxies /chat, /preferences, etc.
+    volumes:
+      - /etc/letsencrypt:/etc/letsencrypt:ro
     depends_on:
       - api
