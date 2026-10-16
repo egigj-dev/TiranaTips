@@ -1,7 +1,7 @@
 """Session history, summaries, and feedback endpoints."""
 import sqlite3 as _sq
 import database
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Depends
 from pydantic import BaseModel, Field, field_validator
 
 from database import (
@@ -10,7 +10,8 @@ from database import (
     get_summaries_for_user,
 )
 from routes import deps
-from routes.auth import _require_user, _assert_session_owner
+from routes.auth import _require_user, _assert_session_owner, _optional_user
+from routes.admin import _require_admin
 from main import limiter
 
 router = APIRouter()
@@ -129,7 +130,11 @@ def delete_session(request: Request, session_id: str):
 @limiter.limit("60/minute")
 def submit_feedback(request: Request, req: FeedbackRequest):
     save_feedback(req.session_id, req.question, req.rating)
-    if req.rating == -1:
+    # Save all feedback, but only let a matching session question affect the paid-answer cache.
+    owner = database.get_session_owner(req.session_id)
+    user = _optional_user(request)
+    authorized = owner is None or (user is not None and user["uid"] == owner)
+    if req.rating == -1 and authorized and database.session_has_user_question(req.session_id, req.question):
         # Evict ALL cached variants of this question regardless of language
         # or personalization signature. We can't enumerate every profile
         # signature, so instead we scan the (small, in-memory) cache and drop
@@ -143,6 +148,6 @@ def submit_feedback(request: Request, req: FeedbackRequest):
     return {"saved": True}
 
 
-@router.get("/feedback/stats")
+@router.get("/feedback/stats", dependencies=[Depends(_require_admin)])
 def feedback_stats():
     return get_feedback_stats()

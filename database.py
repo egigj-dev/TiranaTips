@@ -2052,3 +2052,15 @@ def delete_user_account(user_id: str, verified_hash: str, verified_version: int)
         return True
     finally:
         conn.close()
+
+
+# Uses session_id and question to require feedback to refer to an actual user turn.
+def session_has_user_question(session_id: str, question: str) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        return conn.execute(
+            "SELECT 1 FROM messages WHERE session_id=? AND role='user' AND LOWER(TRIM(content))=LOWER(TRIM(?)) LIMIT 1",
+            (session_id, question),
+        ).fetchone() is not None
+    finally:
+        conn.close()

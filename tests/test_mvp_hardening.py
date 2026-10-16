@@ -325,3 +325,67 @@ def test_legacy_ingestion_command_is_retired():
                             capture_output=True, text=True, timeout=10)
     assert result.returncode != 0
     assert "POST /admin/ingest" in result.stderr
+
+
+# Uses account-scoped preference keys to reject another account while keeping anonymous use.
+def test_recommended_preferences_authorization(client):
+    _, headers = account(client)
+    other, _ = account(client, "bob")
+    assert client.post("/places/recommended", headers=headers,
+                       json={"user_id": other["user_id"]}).status_code == 404
+    assert client.post("/places/recommended", json={"user_id": "anonymous123"}).status_code == 200
+
+
+# Uses unknown or unrelated sessions to ensure saved feedback cannot evict arbitrary answers.
+@pytest.mark.parametrize("known_session", [False, True])
+def test_feedback_unrelated_question_does_not_evict(client, known_session):
+    deps._cache["coffee"] = {"question": "coffee?", "answer": "Komiteti"}
+    if known_session:
+        database.save_message("feedback_session", "user", "parks?")
+    response = client.post("/feedback", json={"session_id": "feedback_session", "question": "coffee?", "rating": -1})
+    assert response.status_code == 201
+    assert "coffee" in deps._cache
+    with sqlite3.connect(database.DB_PATH) as conn:
+        assert conn.execute("SELECT COUNT(*) FROM feedback").fetchone()[0] == 1
+
+
+# Uses matching messages with owner, intruder and anonymous callers to enforce eviction ownership.
+@pytest.mark.parametrize("caller, evicts", [("owner", True), ("intruder", False), ("anonymous", False)])
+def test_feedback_owned_session_eviction(client, caller, evicts):
+    user, headers = account(client)
+    _, intruder = account(client, "bob")
+    database.ensure_session_owner("feedback_session", user["user_id"])
+    database.save_message("feedback_session", "user", " Coffee? ")
+    deps._cache["coffee"] = {"question": "coffee?", "answer": "Komiteti"}
+    response = client.post("/feedback", headers={"owner": headers, "intruder": intruder, "anonymous": {}}[caller],
+        json={"session_id": "feedback_session", "question": "coffee?", "rating": -1})
+    assert response.status_code == 201
+    assert ("coffee" not in deps._cache) is evicts
+
+
+# Uses a matching unclaimed session to preserve anonymous feedback behavior.
+def test_feedback_anonymous_matching_question_evicts(client):
+    database.save_message("anonymous_session", "user", "coffee?")
+    deps._cache["coffee"] = {"question": "coffee?"}
+    assert client.post("/feedback", json={"session_id": "anonymous_session", "question": "coffee?", "rating": -1}).status_code == 201
+    assert not deps._cache
+
+
+# Uses the configured admin secret rather than an account token to gate aggregate feedback.
+def test_feedback_stats_requires_admin(client, monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "test-admin-secret")
+    assert client.get("/feedback/stats").status_code == 404
+    assert client.get("/feedback/stats", headers={"X-Admin-Token": "wrong"}).status_code == 404
+    assert client.get("/feedback/stats", headers={"X-Admin-Token": "test-admin-secret"}).status_code == 200
+
+
+# Uses out-of-range query values to reject unbounded event requests before database work.
+@pytest.mark.parametrize("query", ["days=0", "days=91", "limit=0", "limit=101"])
+def test_events_bounds_reject_invalid(client, query):
+    assert client.get("/events?" + query).status_code == 422
+
+
+# Uses both inclusive endpoint bounds to retain valid event browsing.
+@pytest.mark.parametrize("query", ["days=1&limit=1", "days=90&limit=100"])
+def test_events_bounds_accept_limits(client, query):
+    assert client.get("/events?" + query).status_code == 200
