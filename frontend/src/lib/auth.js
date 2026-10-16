@@ -102,3 +102,23 @@ export async function checkSession() {
 export async function logout() {
   clearStorage();
 }
+
+// Uses current/next passwords and the stored bearer token; preserves the account profile keys.
+export async function changePassword(current, next) {
+  const data = await request("/auth/password", {
+    method: "PATCH",
+    headers: { Authorization: `Bearer ${getSessionToken()}` },
+    body: JSON.stringify({ current_password: current, new_password: next }),
+  });
+  localStorage.setItem(TOKEN_KEY, data.token);
+}
+
+// Uses password to confirm deletion and clears the same storage keys as logout.
+export async function deleteAccount(password) {
+  await request("/auth/account", {
+    method: "DELETE",
+    headers: { Authorization: `Bearer ${getSessionToken()}` },
+    body: JSON.stringify({ password }),
+  });
+  clearStorage();
+}

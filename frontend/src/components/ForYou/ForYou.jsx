@@ -7,6 +7,7 @@ import loggedSkyline from "../../assets/skyline.png";
 
 import {
   getPreferences,
+  deletePreferences,
   getSavedPlaces,
   getSessionToken,
   getRecommendedPlaces,
@@ -14,6 +15,8 @@ import {
   updateLanguage,
   setStoredLanguage,
 } from "../../lib/api";
+
+import { changePassword, deleteAccount } from "../../lib/auth";
 
 import "leaflet/dist/leaflet.css";
 import { MapContainer, TileLayer, Marker, Popup } from "react-leaflet";
@@ -94,7 +97,7 @@ const prettify = (token) =>
 
 const label = (map, token) => (token ? map[token] || prettify(token) : null);
 
-function ForYou({ isAuthenticated }) {
+function ForYou({ isAuthenticated, onAccountDeleted }) {
   const [authView, setAuthView] = useState(null);
   const [prefs, setPrefs] = useState(null);
   // Account profile (display_name, language). Language lives on the account,
@@ -122,18 +125,22 @@ function ForYou({ isAuthenticated }) {
   // Re-sync whenever auth changes app-wide — e.g. logging in/out from the nav
   // bar while already on this page. (Logout now lives only in the nav bar.)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile external localStorage auth when App changes identity.
     refreshPrefs();
   }, [isAuthenticated, refreshPrefs]);
 
   return (
     <main className="for-you-page">
       {isLoggedIn ? (
-        <LoggedInForYou
-          prefs={prefs}
-          profile={profile}
-          onEditPreferences={() => setAuthView("preferences")}
-          onLanguageChanged={refreshPrefs}
-        />
+        <>
+          <LoggedInForYou
+            prefs={prefs}
+            profile={profile}
+            onEditPreferences={() => setAuthView("preferences")}
+            onLanguageChanged={refreshPrefs}
+          />
+          <AccountSettings onReset={refreshPrefs} onDeleted={onAccountDeleted} />
+        </>
       ) : (
         <GuestForYou
           forYouHeroBg={forYouHeroBg}
@@ -178,6 +185,87 @@ function ForYou({ isAuthenticated }) {
         />
       )}
     </main>
+  );
+}
+
+// Uses form passwords transiently, with busy/message state shared across account actions.
+function AccountSettings({ onReset, onDeleted }) {
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  // Uses the confirmation result before deleting stored personalization and refreshing its view.
+  const resetPreferences = async () => {
+    if (!window.confirm("Reset your preferences?")) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      await deletePreferences();
+      onReset();
+      setMessage("Preferences reset.");
+    } catch {
+      setMessage("Could not reset preferences. Please try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Uses the submitted form's current/new passwords; clears both inputs after success.
+  const submitPassword = async (event) => {
+    event.preventDefault();
+    const form = event.currentTarget;
+    const data = new FormData(form);
+    setBusy(true);
+    setMessage("");
+    try {
+      await changePassword(data.get("current"), data.get("next"));
+      form.reset();
+      setMessage("Password changed.");
+    } catch {
+      setMessage("Could not change password. Check your current password and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Uses the entered password plus explicit confirmation before clearing the account and App state.
+  const submitDeletion = async (event) => {
+    event.preventDefault();
+    if (!window.confirm("Permanently delete your account, saved places and chat history?")) return;
+    const data = new FormData(event.currentTarget);
+    setBusy(true);
+    setMessage("");
+    try {
+      await deleteAccount(data.get("password"));
+      await onDeleted();
+    } catch {
+      setMessage("Could not delete account. Check your password and try again.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section className="dashboard-card account-settings">
+      <h2>Account settings</h2>
+      <button type="button" className="edit-profile-btn" disabled={busy} onClick={resetPreferences}>
+        Reset preferences
+      </button>
+      <form onSubmit={submitPassword}>
+        <h3>Change password</h3>
+        <label htmlFor="current-password">Current password</label>
+        <input id="current-password" name="current" type="password" autoComplete="current-password" required maxLength={128} />
+        <label htmlFor="new-password">New password</label>
+        <input id="new-password" name="next" type="password" autoComplete="new-password" required minLength={6} maxLength={128} />
+        <button type="submit" className="edit-profile-btn" disabled={busy}>Change password</button>
+      </form>
+      <form onSubmit={submitDeletion}>
+        <h3>Delete account</h3>
+        <label htmlFor="delete-password">Password</label>
+        <input id="delete-password" name="password" type="password" autoComplete="current-password" required maxLength={128} />
+        <button type="submit" className="edit-profile-btn" disabled={busy}>Delete account</button>
+      </form>
+      {message && <p role="status">{message}</p>}
+    </section>
   );
 }
 
@@ -317,6 +405,7 @@ function LoggedInForYou({ prefs, profile, onEditPreferences, onLanguageChanged }
 
   useEffect(() => {
     if (!getSessionToken()) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- Discard account data when external auth storage has been cleared.
       setSavedPlaces([]);
       setRecommended([]);
       return;
@@ -336,6 +425,7 @@ function LoggedInForYou({ prefs, profile, onEditPreferences, onLanguageChanged }
   // Language is controlled locally for instant feedback, then persisted.
   const [langValue, setLangValue] = useState(profile?.language || "en");
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- Reconcile the language selector with the asynchronously fetched account profile.
     setLangValue(profile?.language || "en");
   }, [profile]);
 
