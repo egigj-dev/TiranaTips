@@ -993,6 +993,7 @@ import sqlite3
 import secrets
 from datetime import datetime
 import hashlib
+import hmac
 
 # Anchor the DB to a data/ subdir next to this file. In prod the code is baked
 # into the image (ephemeral), so the DB MUST live on a mounted volume or it gets
@@ -1145,6 +1146,19 @@ def init_db():
     cols = [r[1] for r in conn.execute("PRAGMA table_info(users)").fetchall()]
     if "is_admin" not in cols:
         conn.execute("ALTER TABLE users ADD COLUMN is_admin INTEGER NOT NULL DEFAULT 0")
+
+    # cols identifies legacy users tables that still need token invalidation state.
+    if "token_version" not in cols:
+        conn.execute("ALTER TABLE users ADD COLUMN token_version INTEGER NOT NULL DEFAULT 0")
+
+    # Preserve existing duplicate usernames while enforcing uniqueness when possible.
+    try:
+        conn.execute("CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE)")
+    except sqlite3.IntegrityError:
+        conflicts = conn.execute(
+            "SELECT GROUP_CONCAT(username, ', ') FROM users GROUP BY username COLLATE NOCASE HAVING COUNT(*) > 1"
+        ).fetchall()
+        print(f"[Auth] KUJDES: Emra perdoruesish te perseritur: {'; '.join(r[0] for r in conflicts)}")
 
     c.execute('''
             CREATE TABLE IF NOT EXISTS saved_places (
@@ -1790,6 +1804,9 @@ def create_user(username: str, password: str, display_name: str | None = None, l
 
     conn = sqlite3.connect(DB_PATH)
     try:
+        # username uses the same ASCII case folding as login and the unique index.
+        if conn.execute("SELECT 1 FROM users WHERE LOWER(username)=LOWER(?)", (username,)).fetchone():
+            raise ValueError("Username already taken")
         conn.execute(
             """INSERT INTO users (user_id, username, password_hash, salt,
                                   display_name, language, created_at)
@@ -1798,11 +1815,11 @@ def create_user(username: str, password: str, display_name: str | None = None, l
         )
         conn.commit()
     except sqlite3.IntegrityError:
-        conn.close()
         raise ValueError("Username already taken")
-    conn.close()
+    finally:
+        conn.close()
     return {"user_id": user_id, "username": username,
-            "display_name": display_name or username, "language": language}
+            "display_name": display_name or username, "language": language, "token_version": 0}
  
  
 def verify_user(username: str, password: str | None, skip_password: bool = False) -> dict | None:
@@ -1822,11 +1839,12 @@ def verify_user(username: str, password: str | None, skip_password: bool = False
             _hash_password(password or "", "0" * 32)
         return None
     if not skip_password:
-        if _hash_password(password, row["salt"]) != row["password_hash"]:
+        if not hmac.compare_digest(_hash_password(password, row["salt"]), row["password_hash"]):
             return None
     return {"user_id": row["user_id"], "username": row["username"],
             "display_name": row["display_name"],
-            "language": row["language"] if row["language"] else "en"}
+            "language": row["language"] if row["language"] else "en",
+            "token_version": row["token_version"]}
 
 
 def set_user_language(user_id: str, language: str) -> None:
@@ -1975,3 +1993,62 @@ def is_admin(user_id: str) -> bool:
 
 # Auto-inicializim kur importohet moduli
 init_db()
+
+# Uses user_id to validate signed tokens against durable account state.
+def get_user_auth_state(user_id: str) -> dict | None:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        row = conn.execute("SELECT token_version FROM users WHERE user_id=?", (user_id,)).fetchone()
+        return {"token_version": row[0]} if row else None
+    finally:
+        conn.close()
+
+
+# Uses the authenticated user_id, avoiding ambiguous case-insensitive usernames.
+def get_user_credentials(user_id: str) -> dict | None:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    try:
+        row = conn.execute("SELECT * FROM users WHERE user_id=?", (user_id,)).fetchone()
+        return dict(row) if row else None
+    finally:
+        conn.close()
+
+
+# Uses the verified hash/version as a compare-and-set guard for password changes.
+def change_user_password(user_id: str, password: str, verified_hash: str, verified_version: int) -> int | None:
+    salt = secrets.token_hex(16)
+    password_hash = _hash_password(password, salt)
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        with conn:
+            result = conn.execute(
+                "UPDATE users SET password_hash=?, salt=?, token_version=token_version+1 WHERE user_id=? AND password_hash=? AND token_version=?",
+                (password_hash, salt, user_id, verified_hash, verified_version),
+            )
+            return verified_version + 1 if result.rowcount == 1 else None
+    finally:
+        conn.close()
+
+
+# Uses verified credentials and session ownership to delete only this account atomically.
+def delete_user_account(user_id: str, verified_hash: str, verified_version: int) -> bool:
+    conn = sqlite3.connect(DB_PATH)
+    try:
+        with conn:
+            result = conn.execute(
+                "DELETE FROM users WHERE user_id=? AND password_hash=? AND token_version=?",
+                (user_id, verified_hash, verified_version),
+            )
+            if result.rowcount != 1:
+                conn.rollback()
+                return False
+            conn.execute("DELETE FROM saved_places WHERE user_id=?", (user_id,))
+            conn.execute("DELETE FROM user_preferences WHERE user_id=?", (user_id,))
+            # Keep session_owners until every dependent session table has been cleaned.
+            for table in ("messages", "summaries", "session_names", "feedback"):
+                conn.execute(f"DELETE FROM {table} WHERE session_id IN (SELECT session_id FROM session_owners WHERE user_id=?)", (user_id,))
+            conn.execute("DELETE FROM session_owners WHERE user_id=?", (user_id,))
+        return True
+    finally:
+        conn.close()
