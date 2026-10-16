@@ -7,13 +7,11 @@ from langchain_openai import ChatOpenAI
 from ragas.metrics import (LLMContextPrecisionWithReference, LLMContextRecall,
                            Faithfulness, ResponseRelevancy)          # ← add the last two
 from ragas.embeddings import LangchainEmbeddingsWrapper              # ← new line
-from main import (embeddings, sparse_model, qdrant, _rrf, _rerank_scores,
-                  COLLECTION_NAME, FETCH_K, FINAL_K,
-                  _build_system_prompt, call_llm, CHOSEN_MODEL,
-                  _is_directions_query, _extract_origin_dest,
-                  get_events_context, get_transit_context,
-                  embeddings, sparse_model, qdrant, _rrf, _rerank_scores,
-                  COLLECTION_NAME, FETCH_K, FINAL_K)     
+from main import (embeddings, sparse_model, qdrant, _rerank_scores,
+                  COLLECTION_NAME, FETCH_K, FINAL_K, CHOSEN_MODEL)
+from routes.places import _rrf
+from routes.chat import (_build_system_prompt, call_llm, _is_directions_query,
+                         _extract_origin_dest, get_events_context, get_transit_context)
 
 # Reuse the REAL retrieval components — this evaluates your actual pipeline,
 # not a reimplementation. Importing main loads the embedding/sparse/rerank

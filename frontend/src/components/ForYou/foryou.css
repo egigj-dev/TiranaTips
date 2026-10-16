@@ -1515,3 +1515,10 @@
   .logged-hero-dashboard { border-radius: 24px; }
   .benefit-card, .mode-card { grid-template-columns: 1fr; }
 }
+
+/* Account settings reuse the dashboard card and button conventions. */
+.account-settings { margin-top: 24px; }
+.account-settings form { display: grid; gap: 10px; margin-top: 24px; max-width: 360px; }
+.account-settings input { padding: 10px 12px; border: 1px solid #dce5dc; border-radius: 10px; font: inherit; }
+.account-settings .edit-profile-btn { width: fit-content; margin-top: 10px; }
+.account-settings button:disabled { opacity: 0.6; cursor: wait; }

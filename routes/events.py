@@ -1,6 +1,6 @@
 """Events endpoint for the Explore page."""
 from datetime import date, timedelta
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Request, Query
 
 from database import query_events
 from main import limiter
@@ -10,8 +10,8 @@ router = APIRouter()
 
 @router.get("/events")
 @limiter.limit("60/minute")
-def list_events(request: Request, days: int = 30, category: str | None = None,
-                municipality: str | None = None, limit: int = 50):
+def list_events(request: Request, days: int = Query(30, ge=1, le=90), category: str | None = None,
+                municipality: str | None = None, limit: int = Query(50, ge=1, le=100)):
     """Upcoming events for the Explore page — canonical (deduped) events from
     today through `days` ahead, soonest first. Reads the same table the chat's
     event answers use, so the two never disagree."""

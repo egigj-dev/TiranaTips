@@ -16,6 +16,7 @@ import {
   setSessionId,
   getSessionId,
   deleteSession,
+  renameSession,
   downloadSession,
   getSummaries,
   getUserId,
@@ -245,6 +246,7 @@ function Ask() {
     isStreamingRef.current = true;
 
     const userMessage = {
+      // eslint-disable-next-line react-hooks/purity -- sendQuestion runs only in user event handlers.
       id: Date.now(),
       type: "user",
       text: trimmed,
@@ -253,6 +255,7 @@ function Ask() {
       recommendations: null,
     };
 
+    // eslint-disable-next-line react-hooks/purity -- This id is allocated when the user submits a message.
     const assistantId = Date.now() + 1;
 
     setMessages((prev) => [...prev, userMessage]);
@@ -451,6 +454,26 @@ function Ask() {
                   >
                     <span className="session-name">{s.display_name}</span>
                     <div className="session-actions">
+                      {/* Uses s for the target session and e to avoid opening it while renaming. */}
+                      <button
+                        type="button"
+                        className="session-download"
+                        aria-label="Rename chat"
+                        title="Rename chat"
+                        onClick={async (e) => {
+                          e.stopPropagation();
+                          const name = window.prompt("Rename chat", s.display_name);
+                          if (!name?.trim()) return;
+                          try {
+                            await renameSession(s.session_id, name.trim());
+                            refreshSessions();
+                          } catch {
+                            window.alert("Could not rename chat. Please try again.");
+                          }
+                        }}
+                      >
+                        ✎
+                      </button>
                       <button
                         type="button"
                         className="session-download"
@@ -988,15 +1011,13 @@ function PlaceDetailsModal({ place, onClose, onAskFollowUp }) {
 
 function ContextPickerModal({ currentSessionId, onSelect, onClose }) {
   const [summaries, setSummaries] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => !!getSessionToken());
   // /summaries is account-scoped now; without a token it 401s. Distinguish
   // "logged out" from "logged in but no summaries yet".
-  const [needsLogin, setNeedsLogin] = useState(false);
+  const [needsLogin, setNeedsLogin] = useState(() => !getSessionToken());
 
   useEffect(() => {
     if (!getSessionToken()) {
-      setNeedsLogin(true);
-      setLoading(false);
       return;
     }
     getSummaries()

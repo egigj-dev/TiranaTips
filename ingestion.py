@@ -8,7 +8,7 @@ Ndryshim nga versioni i mëparshëm:
       "sparse" → BM25 keyword vector (i ri)
   - Kjo lejon kërkim hibrid (dense + BM25) me RRF fusion
 
-Ekzekuto: python ingestion.py
+Komanda e vjeter eshte hequr: perdor POST /admin/ingest me X-Admin-Token.
   KUJDES: Ky skript fshin dhe rindërton koleksionin. Të gjitha të dhënat
           e vjetra do të zëvendësohen. Kjo është e nevojshme sepse
           skema e Qdrant-it nuk mund të ndryshohet pas krijimit.
@@ -16,6 +16,10 @@ Ekzekuto: python ingestion.py
 Instalo varësitë e reja:
   pip install fastembed
 """
+# The legacy CLI assumes a physical collection; rebuilds now use the authenticated alias-swap job.
+if __name__ == "__main__":
+    raise SystemExit("Ky komandim eshte hequr. Perdor POST /admin/ingest me X-Admin-Token.")
+
 import os
 import uuid
 import requests
@@ -172,13 +176,3 @@ def embed_and_store(texts: list[str], metas: list[dict]):
         print(f"  Ngarkuar {min(i + batch_size, len(points))}/{len(points)} pika...")
 
     print(f"✓ {len(points)} pika (dense + sparse) u ruajtën në Qdrant server.")
-
-
-# --- MAIN ---
-if __name__ == "__main__":
-    docs         = fetch_wiki_pages()
-    texts, metas = chunk_documents(docs)
-    embed_and_store(texts, metas)
-    client.close()
-    print("\nIngestion hibrid përfundoi me sukses!")
-    print("Tani rinis serverin: uvicorn main:app --reload")

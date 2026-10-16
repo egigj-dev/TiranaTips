@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import "./App.css";
 import "./components/Global/pastel-bg.css";
-import { Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import Home from "./components/Home/Home";
 import Navigation from "./components/Navigation/Navigation";
 import Footer from "./components/Footer/Footer";
@@ -11,7 +11,7 @@ import Explore from "./components/Explore/Explore";
 import Global from "./components/Global/Global";
 import Login from "./components/Authentication/Login";
 import Register from "./components/Authentication/Register";
-import { getUserProfile, logout as apiLogout } from "./lib/api";
+import { getUserProfile, logout as apiLogout, newSession } from "./lib/api";
 
 function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -20,6 +20,7 @@ function App() {
   // these only open when the user chooses to sign in, never as a wall.
   const [authModal, setAuthModal] = useState(null);
   const location = useLocation();
+  const navigate = useNavigate();
 
   // Tag <body> with the current page so pastel-bg.css can pick the
   // page-specific gradient blend (home / explore / ask / global / foryou).
@@ -54,6 +55,13 @@ function App() {
     setDisplayName("");
   };
 
+  // Uses the existing logout state update, a fresh session id and home navigation after deletion.
+  const handleAccountDeleted = async () => {
+    await handleLogout();
+    newSession();
+    navigate("/");
+  };
+
   return (
     <>
       <Navigation
@@ -68,7 +76,7 @@ function App() {
         <Route path="/explore" element={<Explore />} />
         <Route path="/ask" element={<Ask />} />
         <Route path="/global" element={<Global />} />
-        <Route path="/foryou" element={<ForYou isAuthenticated={isAuthenticated} />} />
+        <Route path="/foryou" element={<ForYou isAuthenticated={isAuthenticated} onAccountDeleted={handleAccountDeleted} />} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 

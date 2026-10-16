@@ -12,9 +12,10 @@ import sqlite3
 import json
 from datetime import datetime, timedelta
 
-from database import DB_PATH, create_user
+import database
+from database import create_user
 
-conn = sqlite3.connect(DB_PATH)
+conn = sqlite3.connect(database.DB_PATH)
 
 # ── 1. Load all places ──────────────────────────────────────────────────────
 places = {}

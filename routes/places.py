@@ -10,6 +10,7 @@ from qdrant_client.models import (
 
 from database import get_user_preferences, get_also_saved
 from routes import deps
+from routes.preferences import _authorize_prefs
 from main import limiter, GOOGLE_MAPS_API_KEY, PLACES_COLLECTION, FETCH_K, USER_ID_PATTERN, _rerank_scores
 
 router = APIRouter()
@@ -387,6 +388,8 @@ def recommended_places(request: Request, req: RecommendedRequest):
     Falls back gracefully: returns the user's interests even if no places match,
     so the frontend can show a meaningful empty state.
     """
+    # request authorizes the account preference key before personalization reads.
+    _authorize_prefs(request, req.user_id)
     prefs = get_user_preferences(req.user_id)
     user_interests = (prefs or {}).get("interests") or []
 
