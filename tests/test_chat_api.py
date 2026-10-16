@@ -38,6 +38,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import main
+import routes.chat
 import database
 
 
@@ -69,19 +70,19 @@ def mock_pipeline(monkeypatch):
         for tok in ["Try ", "Komiteti", " for coffee in Blloku."]:
             yield tok
 
-    monkeypatch.setattr(main, "translate_question_to_english", fake_q2e)
-    monkeypatch.setattr(main, "stream_llm_tokens", fake_tokens)
-    monkeypatch.setattr(main, "contextualize_query", lambda q, h: q)
-    monkeypatch.setattr(main, "_is_time_sensitive", lambda q: False)
+    monkeypatch.setattr(routes.chat, "translate_question_to_english", fake_q2e)
+    monkeypatch.setattr(routes.chat, "stream_llm_tokens", fake_tokens)
+    monkeypatch.setattr(routes.chat, "contextualize_query", lambda q, h: q)
+    monkeypatch.setattr(routes.chat, "_is_time_sensitive", lambda q: False)
     # High confidence + raw score => stays on local RAG, no web fallback.
     monkeypatch.setattr(
-        main, "retrieve_context",
+        routes.chat, "retrieve_context",
         lambda q: ("CTX", [{"title": "Komiteti", "type": "place", "url": ""}], 1.0, 999.0),
     )
-    monkeypatch.setattr(main, "web_search", lambda q: ("", []))
-    monkeypatch.setattr(main, "get_places_context", lambda q: ("", []))
-    monkeypatch.setattr(main, "_auto_name_session", lambda *a, **k: None)
-    monkeypatch.setattr(main, "_summarize_session", lambda *a, **k: None)
+    monkeypatch.setattr(routes.chat, "web_search", lambda q: ("", []))
+    monkeypatch.setattr(routes.chat, "get_places_context", lambda q: ("", []))
+    monkeypatch.setattr(routes.chat, "_auto_name_session", lambda *a, **k: None)
+    monkeypatch.setattr(routes.chat, "_summarize_session", lambda *a, **k: None)
 
 
 # --------------------------------------------------------------------------- #

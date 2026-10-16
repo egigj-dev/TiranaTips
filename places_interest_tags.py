@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import json, re, sys
 
-from database import DB_PATH
+import database
 import sqlite3
 
 
@@ -211,7 +211,7 @@ def derive_tags(name: str, category: str | None,
 
 def enrich() -> dict:
     """Read all places, derive interest_tags, write back. Returns stats."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(database.DB_PATH)
     conn.row_factory = sqlite3.Row
 
     rows = conn.execute("SELECT slug, name, category, osm_tags FROM places").fetchall()

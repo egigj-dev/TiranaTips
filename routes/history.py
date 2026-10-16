@@ -1,12 +1,13 @@
 """Session history, summaries, and feedback endpoints."""
 import sqlite3 as _sq
+import database
 from fastapi import APIRouter, Request
 from pydantic import BaseModel, Field, field_validator
 
 from database import (
     get_history, get_summary, save_summary, rename_session, get_session_name,
     save_feedback, get_feedback_stats, get_sessions_for_user,
-    get_summaries_for_user, DB_PATH,
+    get_summaries_for_user,
 )
 from routes import deps
 from routes.auth import _require_user, _assert_session_owner
@@ -81,7 +82,7 @@ def list_sessions(request: Request):
     session_ids = get_sessions_for_user(user["uid"])
     names = {}
     if session_ids:
-        conn = _sq.connect(DB_PATH)
+        conn = _sq.connect(database.DB_PATH)
         placeholders = ",".join("?" * len(session_ids))
         name_rows = conn.execute(
             f"SELECT session_id, display_name FROM session_names WHERE session_id IN ({placeholders})",
@@ -115,7 +116,7 @@ def rename_session_endpoint(request: Request, session_id: str, req: RenameReques
 def delete_session(request: Request, session_id: str):
     user = _require_user(request)
     _assert_session_owner(user, session_id)
-    conn = _sq.connect(DB_PATH)
+    conn = _sq.connect(database.DB_PATH)
     conn.execute("DELETE FROM messages       WHERE session_id=?", (session_id,))
     conn.execute("DELETE FROM summaries      WHERE session_id=?", (session_id,))
     conn.execute("DELETE FROM session_names  WHERE session_id=?", (session_id,))

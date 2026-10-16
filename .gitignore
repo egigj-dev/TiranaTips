@@ -119,9 +119,9 @@ deploy.log
 model_cache/
 
 # ── Old Files ──
-chat.py
-vector_store.py
-wiki_ingest.py
+/chat.py
+/vector_store.py
+/wiki_ingest.py
 
 # ── Data ── 
 *.csv
