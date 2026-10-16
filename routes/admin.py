@@ -1,23 +1,3 @@
-# """Admin endpoints — manual triggers for the scheduled ingestion jobs."""
-# import sys
-# import uuid
-# import asyncio
-# from fastapi import APIRouter, BackgroundTasks
-# from qdrant_client.models import (
-#     Distance, VectorParams, SparseVector,
-#     SparseVectorParams, SparseIndexParams, PointStruct,
-# )
-
-# from routes import deps
-# from main import _fetch_wiki_pages, _split_markdown, COLLECTION_NAME
-
-# router = APIRouter()
-
-
-# # ---------------------------------------------------------------------------
-# # Ingestion pipeline (scheduled + manual trigger)
-# # ---------------------------------------------------------------------------
-
 # def _sync_ingestion():
 #     import time as _time
 #     t0 = _time.time()
@@ -75,80 +55,20 @@
 #     except Exception as e:
 #         print(f"[Ingest] GABIM: {e}")
 
-
-# async def run_ingestion_job():
-#     await asyncio.to_thread(_sync_ingestion)
-
-
-# # ---------------------------------------------------------------------------
-# # Events ingestion — runs the 6 scrapers and upserts into SQLite.
-# # ---------------------------------------------------------------------------
-
-# def _sync_events_ingestion():
-#     """Run all event scrapers, deduplicate, upsert, and prune stale rows."""
-#     import time as _time
-#     t0 = _time.time()
-#     print("[EventsIngest] Duke filluar scraping...")
-#     try:
-#         # Import the ingestion.run module — it wires up all 6 scrapers
-#         # and calls dedup_canonicalize → upsert_events → prune_events.
-#         from ingestion.run import run_all as _events_run_all
-#         summary = _events_run_all()
-#         elapsed = _time.time() - t0
-#         total   = sum(v for v in summary.get("per_source", {}).values() if isinstance(v, int) and v > 0)
-#         print(f"[EventsIngest] OK — {summary['canonical']} canonical events "
-#               f"nga {total} te skrapuara, {elapsed:.1f}s")
-#     except Exception as e:
-#         print(f"[EventsIngest] GABIM: {e}", file=sys.stderr)
-#         import traceback
-#         traceback.print_exc()
-
-
-# async def run_events_ingestion_job():
-#     await asyncio.to_thread(_sync_events_ingestion)
-
-
-# def _refresh_places_job():
-#     """OSM ingest → enrich (neighborhood/price) → Qdrant reindex, as one task.
-#     Imported lazily so main.py import stays light and a missing module can't
-#     break app startup. The enrich step MUST run between ingest and index —
-#     re-ingestion resets neighborhood/price_tier to NULL, and only enrich
-#     refills them before they're indexed into the payload."""
-#     try:
-#         import osm_places, places_enrich, osm_places_index
-#         ingest_summary = osm_places.ingest()
-#         enrich_summary = places_enrich.enrich()
-#         index_summary = osm_places_index.reindex()
-#         print(f"[Places] ingest={ingest_summary} enrich={enrich_summary} index={index_summary}")
-#     except Exception as exc:  # noqa: BLE001
-#         print(f"[Places] refresh failed: {exc}")
-
-
-# def _refresh_transit_job():
-#     try:
-#         import bus_routes          # lazy import keeps startup light, avoids the cycle
-#         bus_routes.refresh()
-#     except Exception as exc:
-#         print(f"[Transit] refresh failed: {exc}")
-
-
 # @router.post("/admin/ingest")
 # async def trigger_ingestion(background_tasks: BackgroundTasks):
 #     background_tasks.add_task(run_ingestion_job)
 #     return {"status": "Ingestion filloi ne background — kontrolloni logjet e serverit."}
-
 
 # @router.post("/admin/places/refresh")
 # async def trigger_places_refresh(background_tasks: BackgroundTasks):
 #     background_tasks.add_task(_refresh_places_job)
 #     return {"status": "Places refresh started in background — check server logs."}
 
-
 # @router.post("/admin/transit/refresh")
 # async def trigger_transit_refresh(background_tasks: BackgroundTasks):
 #     background_tasks.add_task(_refresh_transit_job)
 #     return {"status": "Transit refresh started — check server logs."}
-
 
 """Admin endpoints — manual triggers for the scheduled ingestion jobs."""
 import os
