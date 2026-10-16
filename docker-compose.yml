@@ -15,7 +15,7 @@ services:
     container_name: wikijs
     restart: unless-stopped
     ports:
-      - "3000:3000"
+      - "127.0.0.1:3000:3000"
     environment:
       DB_TYPE: postgres
       DB_HOST: postgres

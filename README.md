@@ -52,7 +52,7 @@ Streamed back to browser (SSE)
 ```
 TiranaTips/
 ├── main.py              # FastAPI app — RAG pipeline, streaming, sessions, feedback
-├── ingestion.py         # Wiki.js → chunk → embed → Qdrant
+├── ingestion.py         # Retired CLI; rebuild via authenticated /admin/ingest
 ├── database.py          # SQLite helpers — messages, summaries, sessions, feedback
 ├── index_tourism.html   # Frontend chat UI
 ├── requirements.txt     # Python dependencies
@@ -71,7 +71,7 @@ All services run as Docker containers on **84.8.251.50**:
 
 | Service | URL | Purpose |
 |---------|-----|---------|
-| Wiki.js | http://84.8.251.50:3000 | Knowledge base editor |
+| Wiki.js | http://127.0.0.1:3000 (SSH tunnel) | Knowledge base editor |
 | FastAPI (prod) | http://84.8.251.50:8000 | Production API |
 | Qdrant | http://localhost:6333 | Vector store (internal) |
 | PostgreSQL | internal only | Wiki.js database |
@@ -168,17 +168,17 @@ sherbimet/       → services (transport)
 tirana-*/        → events, cinema, theatre
 ```
 
-To add new content: log into Wiki.js at http://84.8.251.50:3000 and create pages. After adding pages, re-run ingestion so they appear in the vector store:
+To add new content: reach Wiki.js through an SSH tunnel at http://localhost:3000 and create pages. After adding pages, re-run ingestion so they appear in the vector store:
 
 ```bash
-# Trigger ingestion manually
-curl -X POST http://localhost:8000/admin/ingest
-
-# Or run directly
-docker exec -it tirantips-api python ingestion.py
+# Trigger ingestion manually (ADMIN_TOKEN must match the API environment)
+curl -X POST http://localhost:8001/admin/ingest -H "X-Admin-Token: $ADMIN_TOKEN"
 ```
 
-Ingestion also runs automatically every 24 hours.
+Ingestion also runs automatically every 24 hours. The old `python3 ingestion.py` rebuild command is retired; use `/admin/ingest`, which builds a new collection and swaps the alias. Its first migration briefly removes the old physical collection; subsequent rebuilds keep the previous index serving until the swap.
+
+Deployments must set `WIKI_URL=http://wikijs:3000/graphql` in `.env`, as shown in `env.example`.
+Admins can reach Wiki.js with `ssh -L 3000:localhost:3000 <user>@<server>`, then open http://localhost:3000.
 
 ---
 
@@ -220,11 +220,11 @@ docker compose up -d --force-recreate api
 
 **Ingestion failing:**
 ```bash
-docker exec -it tirantips-api python ingestion.py
+curl -X POST http://localhost:8001/admin/ingest -H "X-Admin-Token: $ADMIN_TOKEN"
 # Common causes:
 # - WIKI_URL wrong → check .env (should be http://wikijs:3000/graphql inside Docker)
 # - QDRANT_URL wrong → check .env (should be http://qdrant:6333)
-# - No pages found → check path filter in ingestion.py matches your Wiki.js paths
+# - No pages found → check the wiki path filter in main.py matches your pages
 ```
 
 **Wrong language in responses:**
@@ -283,3 +283,25 @@ The script creates an isolated Linux user, clones the repo, copies `.env`, sets 
 ## License
 
 MIT
+
+
+## SQLite backups
+
+Install the `sqlite3` CLI on the backup host. Run `scripts/backup_db.sh` as a user who can read `data/chat_history.db`. Set `BACKUP_DIR` to an absolute directory off the data volume; the script creates it with private permissions. `KEEP_DAYS` defaults to 14 and must be a non-negative integer. Backups are validated before replacing a same-day backup; retention runs only after success.
+
+For a daily backup at 03:30 UTC, set the server timezone to UTC, or use `CRON_TZ=UTC` if your cron supports it (check `man 5 crontab`). Ensure the cron user can write the log and backup directory. Document this entry; install it yourself:
+
+```cron
+CRON_TZ=UTC
+30 3 * * * BACKUP_DIR=/var/backups/tiranatips /path/to/repo/scripts/backup_db.sh >> /var/log/tiranatips-backup.log 2>&1
+```
+
+Optionally copy validated backups off-site with `rclone copy "$BACKUP_DIR" remote:bucket`. Configure credentials with `rclone config`; never commit them. Remote retention is separate from local retention.
+
+Restore check:
+
+1. Stop all database writers: `docker compose stop api` stops the API and its scheduler. Also stop any separately launched ingest scripts or development workers.
+2. Move `data/chat_history.db` and any `data/chat_history.db-wal` and `data/chat_history.db-shm` files aside together, preserving a recovery copy.
+3. Copy a validated backup to `data/chat_history.db`, with permissions allowing the API to read and write it. Keep stale WAL/SHM files away from the restored DB.
+4. Run `sqlite3 data/chat_history.db "PRAGMA integrity_check; SELECT COUNT(*) FROM users; SELECT COUNT(*) FROM messages; SELECT COUNT(*) FROM saved_places;"`. Require `ok` and compare counts with expectations.
+5. Start the API with `docker compose -f docker-compose.yml up -d api` and log in with a known account. A passing `/health` alone does not verify a restore.

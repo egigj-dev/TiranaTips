@@ -199,3 +199,129 @@ def test_password_change_uses_uid_with_legacy_duplicates(client):
     assert client.patch("/auth/password", headers=headers,
         json={"current_password": "second123", "new_password": "changed123"}).status_code == 200
     assert database.verify_user("Egi", "secret123")["user_id"] == first["user_id"]
+
+
+# Uses deterministic documents, vectors and alias metadata to exercise ingestion stages.
+@pytest.fixture
+def ingestion_client(monkeypatch):
+    from types import SimpleNamespace
+    from unittest.mock import Mock
+    from routes import admin
+    vector = SimpleNamespace(indices=Mock(tolist=lambda: [1]), values=Mock(tolist=lambda: [1.0]))
+    client = Mock()
+    client.get_aliases.return_value = SimpleNamespace(aliases=[
+        SimpleNamespace(alias_name=admin.COLLECTION_NAME, collection_name="wiki_old")])
+    client.get_collections.return_value = SimpleNamespace(collections=[])
+    monkeypatch.setattr(deps, "qdrant_client", client)
+    monkeypatch.setattr(deps, "embed_model", Mock(embed_documents=lambda texts: [[0.1, 0.2]]))
+    monkeypatch.setattr(deps, "sparse_model", Mock(embed=lambda texts: [vector]))
+    monkeypatch.setattr(admin, "_fetch_wiki_pages", lambda: [{"text": "Wiki page"}])
+    monkeypatch.setattr(admin, "_split_markdown", lambda doc: ([doc["text"]], [{"title": "Wiki"}]))
+    return client
+
+
+# Uses the recorded collection name to prove atomic alias replacement follows complete upserts.
+def test_ingestion_alias_swap_order(ingestion_client):
+    from routes import admin
+    admin._sync_ingestion()
+    calls = ingestion_client.method_calls
+    names = [call[0] for call in calls]
+    assert names.index("create_collection") < names.index("upsert") < names.index("update_collection_aliases") < names.index("delete_collection")
+    new_name = ingestion_client.create_collection.call_args.kwargs["collection_name"]
+    assert new_name.startswith(admin.COLLECTION_NAME + "_")
+    assert ingestion_client.upsert.call_args.kwargs["collection_name"] == new_name
+    assert ingestion_client.upsert.call_args.kwargs["wait"] is True
+    assert ingestion_client.update_collection_aliases.call_args.kwargs["change_aliases_operations"] == [
+        {"delete_alias": {"alias_name": admin.COLLECTION_NAME}},
+        {"create_alias": {"alias_name": admin.COLLECTION_NAME, "collection_name": new_name}}]
+    ingestion_client.delete_collection.assert_called_once_with("wiki_old")
+
+
+# Uses a failed upsert to ensure only the private, incomplete collection is removed.
+def test_ingestion_failed_upsert_preserves_alias(ingestion_client):
+    from routes import admin
+    ingestion_client.upsert.side_effect = RuntimeError("upsert failed")
+    admin._sync_ingestion()
+    new_name = ingestion_client.create_collection.call_args.kwargs["collection_name"]
+    ingestion_client.delete_collection.assert_called_once_with(new_name)
+    ingestion_client.update_collection_aliases.assert_not_called()
+
+
+# Uses a post-swap delete failure to keep the active collection intact.
+def test_ingestion_old_collection_cleanup_failure(ingestion_client, capsys):
+    from routes import admin
+    ingestion_client.delete_collection.side_effect = RuntimeError("delete failed")
+    admin._sync_ingestion()
+    ingestion_client.delete_collection.assert_called_once_with("wiki_old")
+    assert "wiki_old" in capsys.readouterr().out
+
+
+# Uses server metadata after a lost response to recognize an already completed swap.
+def test_ingestion_swap_timeout_but_applied(ingestion_client):
+    from types import SimpleNamespace
+    from routes import admin
+    before = ingestion_client.get_aliases.return_value
+    # Calls after the timeout must return the new target discovered from create_collection.
+    def aliases():
+        if ingestion_client.update_collection_aliases.called:
+            new_name = ingestion_client.create_collection.call_args.kwargs["collection_name"]
+            return SimpleNamespace(aliases=[SimpleNamespace(alias_name=admin.COLLECTION_NAME, collection_name=new_name)])
+        return before
+    ingestion_client.get_aliases.side_effect = aliases
+    ingestion_client.update_collection_aliases.side_effect = TimeoutError("lost response")
+    admin._sync_ingestion()
+    ingestion_client.delete_collection.assert_called_once_with("wiki_old")
+
+
+# Uses a failed swap and failed reconciliation to preserve both possible active targets.
+def test_ingestion_unknown_swap_outcome(ingestion_client, capsys):
+    from routes import admin
+    ingestion_client.get_aliases.side_effect = [ingestion_client.get_aliases.return_value, TimeoutError("unreachable")]
+    ingestion_client.update_collection_aliases.side_effect = TimeoutError("lost response")
+    admin._sync_ingestion()
+    ingestion_client.delete_collection.assert_not_called()
+    output = capsys.readouterr().out
+    assert "wiki_old" in output
+    assert ingestion_client.create_collection.call_args.kwargs["collection_name"] in output
+
+
+# Uses a rejected alias update with a confirmed old target to clean the inactive new build.
+def test_ingestion_confirmed_swap_failure(ingestion_client):
+    from routes import admin
+    ingestion_client.update_collection_aliases.side_effect = RuntimeError("rejected")
+    admin._sync_ingestion()
+    new_name = ingestion_client.create_collection.call_args.kwargs["collection_name"]
+    ingestion_client.delete_collection.assert_called_once_with(new_name)
+
+
+# Uses a held worker lock to prove a second invocation returns before any Qdrant work.
+def test_ingestion_concurrent_call_returns(ingestion_client):
+    from routes import admin
+    with admin._ingestion_lock:
+        admin._sync_ingestion()
+    assert not ingestion_client.method_calls
+
+
+# Uses a legacy physical collection to verify its deletion occurs only after the new upsert.
+def test_ingestion_first_alias_migration(ingestion_client):
+    from types import SimpleNamespace
+    from routes import admin
+    ingestion_client.get_aliases.return_value = SimpleNamespace(aliases=[])
+    ingestion_client.get_collections.return_value = SimpleNamespace(collections=[SimpleNamespace(name=admin.COLLECTION_NAME)])
+    admin._sync_ingestion()
+    calls = [call[0] for call in ingestion_client.method_calls]
+    assert calls.index("upsert") < calls.index("delete_collection") < calls.index("update_collection_aliases")
+    ingestion_client.delete_collection.assert_called_once_with(admin.COLLECTION_NAME)
+    operations = ingestion_client.update_collection_aliases.call_args.kwargs["change_aliases_operations"]
+    assert len(operations) == 1 and "create_alias" in operations[0]
+
+
+# Uses the legacy CLI directly to verify retirement happens before imports or network work.
+def test_legacy_ingestion_command_is_retired():
+    import subprocess
+    import sys
+    from pathlib import Path
+    result = subprocess.run([sys.executable, "ingestion.py"], cwd=Path(__file__).resolve().parents[1],
+                            capture_output=True, text=True, timeout=10)
+    assert result.returncode != 0
+    assert "POST /admin/ingest" in result.stderr
